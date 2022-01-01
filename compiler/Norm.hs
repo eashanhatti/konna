@@ -9,7 +9,6 @@ module Norm where
 
 import Var
 import qualified Core as C
-import qualified Surface as S
 import qualified Data.Map as Map
 import Data.Maybe(fromJust)
 import Debug.Trace
@@ -29,14 +28,11 @@ type Locals = [Value]
 
 type Spine = [Value]
 data Closure = Closure [Value] C.Term
-  deriving (Show, Eq)
 
 -- Type annotation
 type Type = Value
 
-data Value = Value
-  { unVal :: ValueInner }
-  deriving Eq
+data Value = Value { unVal :: ValueInner }
 
 gen = Value
 
@@ -63,9 +59,7 @@ data ValueInner
   -- | Let0 Value Value Value
   -- Extras
   | LetrecBound Closure
-  | ElabError S.Term
-  | ElabBlank
-  deriving Eq
+  | ElabError
 
 instance Show Value where
   show (Value v) = case v of
@@ -79,9 +73,8 @@ instance Show Value where
     StuckRigidVar ty lv spine -> "v~(" ++ show (unLevel lv) ++ " " ++ (concat $ intersperse " " (map show spine)) ++ "; : " {-++ show ty-} ++ ")"
     FunElim0 lam arg -> "v(" ++ show lam ++ " @ " ++ show arg ++ ")"
     StuckSplice quote -> "v[" ++ show quote ++ "]"
-    LetrecBound v -> "lrb(" ++ show v ++ ")"
-    ElabError s -> "error(" ++ show s ++ ")"
-    ElabBlank -> "v<blank>"
+    LetrecBound (Closure _ e) -> "lrb(" ++ show e ++ ")"
+    ElabError -> "error"
     StuckGVar nid ty -> "(vg" ++ show nid ++ " : " ++ show ty ++ ")"
     IndType (Id nid) indices -> "vInd" ++ show nid ++ "[" ++ (concat $ intersperse " " (map show indices)) ++ "]"
     IndIntro (Id nid) args _ -> "(v#" ++ show nid ++ (concat $ intersperse " " (map show args)) ++ ")"
@@ -115,7 +108,7 @@ vApp (Value lam) arg = case lam of
   FunIntro body vty -> appClosure body arg
   StuckFlexVar vty gl spine -> Value <$> (pure $ StuckFlexVar vty gl (arg:spine))
   StuckRigidVar vty lv spine -> Value <$> (pure $ StuckRigidVar vty lv (arg:spine)) -- FIXME
-  _ -> pure $ gen ElabBlank
+  _ -> pure $ gen ElabError
 
 vSplice :: HasCallStack => Value -> Norm Value
 vSplice val = case unVal val of
@@ -159,7 +152,7 @@ define val act = do
 blank :: HasCallStack => Norm a -> Norm a
 blank act = do
   (level, metas, locals, globals) <- ask
-  pure $ runReader act (incLevel level, metas, (gen ElabBlank):locals, globals)
+  pure $ runReader act (incLevel level, metas, (gen ElabError):locals, globals)
 
 blankN :: HasCallStack => Int -> Norm a -> Norm a
 blankN n act = case n of
@@ -168,7 +161,7 @@ blankN n act = case n of
 
 index :: HasCallStack => Metas -> Locals -> Globals -> Index -> C.Type -> Int -> Value
 index metas locals globals ix ty ix' = case locals of
-  [] -> gen ElabBlank
+  [] -> gen ElabError
   x:xs ->
     if ix' == 0 then
       case unVal x of
@@ -194,7 +187,7 @@ eval0 (C.Term term) = do
       vDefs <- mapM (\def -> blankN (length defs) $ eval0 def) defs
       vBody <- blankN (length defs) $ eval0 body
       pure $ Letrec0 vDefs vBody
-    C.ElabError s -> pure $ ElabError s
+    C.ElabError -> pure ElabError
 
 eval :: HasCallStack => C.Term -> Norm Value
 eval (C.Term term) = do
@@ -263,8 +256,7 @@ eval (C.Term term) = do
             C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
             C.TypeType0 -> C.gen $ C.ProdType nid acc
       C.ElabBlankItem nid ty -> eval ty >>= pure . Value . StuckGVar nid
-    C.ElabError s -> pure $ Value (ElabError s)
-    C.ElabBlank -> pure $ Value ElabBlank
+    C.ElabError -> pure $ Value ElabError
 
 force :: HasCallStack => Value -> Norm Value
 force val@(Value val') = do
@@ -336,6 +328,5 @@ readback val = do
     TypeType0 -> pure C.TypeType0
     TypeType1 -> pure C.TypeType1
     StuckGVar nid ty -> readback ty >>= pure . C.GVar nid 
-    ElabError s -> pure $ C.ElabError s
-    ElabBlank -> pure C.ElabBlank
+    ElabError -> pure C.ElabError
     _ -> error $ "readback: " ++ show (gen val)

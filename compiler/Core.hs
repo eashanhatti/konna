@@ -5,7 +5,6 @@ module Core where
 
 import Var
 import {-# SOURCE #-} qualified Norm as N
-import qualified Surface as S
 import Control.Monad.Reader(Reader, ask)
 import Data.Map(Map)
 import Data.Set(Set)
@@ -74,8 +73,7 @@ data TermInner
   | Letrec [Term] Term
   | Meta Global (Maybe Type)
   | InsertedMeta [BinderInfo] Global (Maybe Type)
-  | ElabError S.Term
-  | ElabBlank
+  | ElabError
   | Impossible
   deriving Eq
 
@@ -127,8 +125,7 @@ instance Show TermInner where
     IndElim scr bs -> "case " ++ show scr ++ " of" ++ show bs
     ProdIntro ty fields -> "{" ++ (concat $ intersperse ", " $ Prelude.map show fields) ++ "}" ++ ":" ++ show ty
     ProdType nid indices -> "Prod" ++ show nid ++ "[" ++ (concat $ intersperse ", " $ Prelude.map show indices) ++ "]"
-    ElabError _ -> "<error>"
-    ElabBlank -> "<blank>"
+    ElabError -> "<error>"
     Impossible -> "<impossible>"
 
 -- shift :: Set Index -> Term -> Reader Int Term
