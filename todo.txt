@@ -1,2 +1,0 @@
-Implement stage polymorphism
-Implement eliminators
