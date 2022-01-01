@@ -14,7 +14,6 @@ import Numeric.Natural
 import Debug.Trace(trace)
 import Data.Maybe(isJust)
 import Etc
-import {-# SOURCE #-} Elaboration.Error
 
 data BinderInfo = Abstract | Concrete
   deriving (Show, Eq)
@@ -22,20 +21,14 @@ data BinderInfo = Abstract | Concrete
 -- type annotation
 type Type = Term
 
-data HoleName = HoleName Int
-  deriving (Show, Eq)
-
 data Program = Program [Item]
 
 instance Show Program where
   show (Program is) = concat $ intersperse "\n" (map show is)
 
-data IndDefInfo = IndDefInfo [String]
-  deriving (Show, Eq)
-
 data Item
-  = TermDef Id Term Term
-  | IndDef Id Type IndDefInfo
+  = TermDef Id Type Term
+  | IndDef Id Type
   | ProdDef Id Type [Type]
   | ConDef Id Type
   | ElabBlankItem Id Type
@@ -44,50 +37,31 @@ data Item
 instance Show Item where
   show item = case item of
     TermDef nid body ty -> "def " ++ show nid ++ " : " ++ show ty ++ " = " ++ show body
-    IndDef nid ty _ -> "ind " ++ show nid ++ " : " ++ show ty
+    IndDef nid ty -> "ind " ++ show nid ++ " : " ++ show ty
     ProdDef nid ty fields -> "prod " ++ show nid ++ " : " ++ show ty ++ "[" ++ (concat $ intersperse ", " $ map show fields) ++ "]"
     ConDef nid ty -> "con " ++ show nid ++ " : " ++ show ty
     ElabBlankItem nid _ -> "blank " ++ show nid
 
 itemId item = case item of
   TermDef nid _ _ -> nid
-  IndDef nid _ _ -> nid
+  IndDef nid _ -> nid
   ConDef nid _ -> nid
   ProdDef nid _ _ -> nid
   ElabBlankItem nid _ -> nid
-
-data FunIntroInfo = FunIntroInfo Natural S.Name
-  deriving Eq
-data FunTypeInfo = FunTypeInfo S.Name
-  deriving Eq
-data FunElimInfo = FunElimInfo Natural
-  deriving Eq
-data VarInfo = VarInfo String
-  deriving Eq
-data GVarInfo = GVarInfo [String]
-  deriving Eq
-data LetrecInfo = LetrecInfo S.Name
-  deriving Eq
-data Info = Info (Maybe S.Direction) (Maybe [(S.Pattern, Term)]) [Error]
-  deriving Eq
-
 data Term = Term
-  { unInfo :: Info
-  , unTerm :: TermInner }
+  { unTerm :: TermInner }
   deriving Eq
 
-withErrs errs (Term (Info side cs es) e) = Term (Info side cs (errs ++ es)) e
-withErrsGen errs e = Term (Info Nothing Nothing errs) e
-gen e = Term (Info Nothing Nothing []) e
+gen = Term
 
 data TermInner
-  = Var Index Type VarInfo
-  | GVar Id Type GVarInfo
+  = Var Index Type
+  | GVar Id Type
   | TypeType0
   | TypeType1
-  | FunIntro Term Type FunIntroInfo
-  | FunType Term Term FunTypeInfo
-  | FunElim Term Term FunElimInfo
+  | FunIntro Term Type
+  | FunType Term Term
+  | FunElim Term Term
   | QuoteType Term
   | QuoteIntro Term Type
   | QuoteElim Term
@@ -97,7 +71,7 @@ data TermInner
   | ProdType Id [Term]
   | ProdIntro Type [Term]
   | ProdElim Term Term
-  | Letrec [Term] Term LetrecInfo
+  | Letrec [Term] Term
   | Meta Global (Maybe Type)
   | InsertedMeta [BinderInfo] Global (Maybe Type)
   | ElabError S.Term
@@ -130,16 +104,16 @@ data TermInner
 
 instance Show TermInner where
   show term = case term of
-    Var ix ty _ -> "i" ++ show (unIndex ix) -- ++ ":" ++ show ty
+    Var ix ty -> "i" ++ show (unIndex ix) -- ++ ":" ++ show ty
     TypeType0 -> "U0"
     TypeType1 -> "U1"
-    FunIntro body ty _ -> "{" ++ show body ++ "}"
-    FunType inTy outTy _ -> show inTy ++ " -> " ++ show outTy
-    FunElim lam arg _ -> "(" ++ show lam ++ " @ " ++ show arg ++ ")"
+    FunIntro body ty -> "{" ++ show body ++ "}"
+    FunType inTy outTy -> show inTy ++ " -> " ++ show outTy
+    FunElim lam arg -> "(" ++ show lam ++ " @ " ++ show arg ++ ")"
     QuoteType innerTy -> "Quote " ++ show innerTy
     QuoteIntro inner _ -> "<" ++ show inner ++ ">"
     QuoteElim quote -> "[" ++ show quote ++ "]"
-    Letrec defs body _ -> "letrec " ++ show defs ++ " in " ++ show body
+    Letrec defs body -> "letrec " ++ show defs ++ " in " ++ show body
     Meta gl ty ->
       -- if showTys then
         "(?" ++ show (unGlobal gl) ++ " : " ++ show ty ++ ")"
@@ -147,7 +121,7 @@ instance Show TermInner where
       --   "?" ++ show (unGlobal gl)
     InsertedMeta bis gl ty ->
       "(?" ++ show (unGlobal gl) ++ " : " ++ show ty ++ ";" ++ (show $ Prelude.map show bis) ++ ")"
-    GVar nid ty _ -> "g" ++ show (unId nid){- ++ ":" ++ show ty ++ ")"-}
+    GVar nid ty -> "g" ++ show (unId nid){- ++ ":" ++ show ty ++ ")"-}
     IndIntro (Id nid) args ty -> "#" ++ show nid ++ "[" ++ (concat $ intersperse ", " $ Prelude.map show args) ++ "]" ++ ":(" ++ show ty ++ ")"
     IndType (Id nid) indices -> "Ind" ++ show nid ++ "[" ++ (concat $ intersperse ", " $ Prelude.map show indices) ++ "]"
     IndElim scr bs -> "case " ++ show scr ++ " of" ++ show bs
@@ -179,4 +153,4 @@ instance Show TermInner where
 --     next = insert (Index 0) $ Data.Set.map (\ix -> Index $ unIndex ix + 1) bounds
 
 instance Show Term where
-  show (Term (Info m _ _) term) = show term
+  show (Term term) = show term

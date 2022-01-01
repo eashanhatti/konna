@@ -19,7 +19,6 @@ import GHC.Stack
 import Data.List(intersperse)
 import Numeric.Natural
 import Etc
-import {-# SOURCE #-} Elaboration.Error
 
 data MetaEntry a = Solved a | Unsolved
   deriving Show
@@ -36,13 +35,14 @@ data Closure = Closure [Value] C.Term
 type Type = Value
 
 data Value = Value
-  { unInfo :: C.Info
-  , unVal :: ValueInner }
+  { unVal :: ValueInner }
   deriving Eq
 
+gen = Value
+
 data ValueInner
-  = FunIntro Closure Type C.FunIntroInfo
-  | FunType Type Closure C.FunTypeInfo
+  = FunIntro Closure Type
+  | FunType Type Closure
   | QuoteIntro C.Term Type
   | QuoteType Value
   | IndType Id [Value]
@@ -53,13 +53,13 @@ data ValueInner
   | TypeType1
   -- Blocked eliminations
   | StuckFlexVar (Maybe Type) Global Spine
-  | StuckGVar Id Type C.GVarInfo
-  | StuckRigidVar Type Level Spine C.VarInfo
+  | StuckGVar Id Type
+  | StuckRigidVar Type Level Spine
   | StuckSplice Value
   -- Object-level terms, should only appear under quotes
-  | FunElim0 Value Value C.FunElimInfo
-  | Var0 Index Value C.VarInfo
-  | Letrec0 [Value] Value C.LetrecInfo
+  | FunElim0 Value Value
+  | Var0 Index Value
+  | Letrec0 [Value] Value
   -- | Let0 Value Value Value
   -- Extras
   | LetrecBound Closure
@@ -67,24 +67,22 @@ data ValueInner
   | ElabBlank
   deriving Eq
 
-gen v = Value (C.Info Nothing Nothing []) v
-
 instance Show Value where
-  show (Value _ v) = case v of
-    FunIntro (Closure _ body) ty _ -> "v{" ++ show body ++ "}"
-    FunType inTy (Closure env outTy) _ -> show inTy ++ " v-> " ++ show outTy ++ " " ++ show env
+  show (Value v) = case v of
+    FunIntro (Closure _ body) ty -> "v{" ++ show body ++ "}"
+    FunType inTy (Closure env outTy) -> show inTy ++ " v-> " ++ show outTy ++ " " ++ show env
     QuoteIntro inner _ -> "v<" ++ show inner ++ ">"
     QuoteType innerTy -> "vQuote " ++ show innerTy
     TypeType0 -> "vU0"
     TypeType1 -> "vU1"
     StuckFlexVar _ gl spine -> "v~(?" ++ show (unGlobal gl) ++ " " ++ (concat $ intersperse " " (map show spine)) ++ ")"
-    StuckRigidVar ty lv spine _ -> "v~(" ++ show (unLevel lv) ++ " " ++ (concat $ intersperse " " (map show spine)) ++ "; : " {-++ show ty-} ++ ")"
-    FunElim0 lam arg _ -> "v(" ++ show lam ++ " @ " ++ show arg ++ ")"
+    StuckRigidVar ty lv spine -> "v~(" ++ show (unLevel lv) ++ " " ++ (concat $ intersperse " " (map show spine)) ++ "; : " {-++ show ty-} ++ ")"
+    FunElim0 lam arg -> "v(" ++ show lam ++ " @ " ++ show arg ++ ")"
     StuckSplice quote -> "v[" ++ show quote ++ "]"
     LetrecBound v -> "lrb(" ++ show v ++ ")"
     ElabError s -> "error(" ++ show s ++ ")"
     ElabBlank -> "v<blank>"
-    StuckGVar nid ty _ -> "(vg" ++ show nid ++ " : " ++ show ty ++ ")"
+    StuckGVar nid ty -> "(vg" ++ show nid ++ " : " ++ show ty ++ ")"
     IndType (Id nid) indices -> "vInd" ++ show nid ++ "[" ++ (concat $ intersperse " " (map show indices)) ++ "]"
     IndIntro (Id nid) args _ -> "(v#" ++ show nid ++ (concat $ intersperse " " (map show args)) ++ ")"
     ProdType nid indices -> "vP" ++ show nid ++ "[" ++ (concat $ intersperse " " (map show indices)) ++ "]"
@@ -113,10 +111,10 @@ appClosure (Closure locals body) val = do
   pure $ runReader (eval body) (level, metas, val:locals, globals)
 
 vApp :: HasCallStack => Value -> Value -> Norm Value
-vApp (Value info lam) arg = case lam of
-  FunIntro body vty _ -> appClosure body arg
-  StuckFlexVar vty gl spine -> Value info <$> (pure $ StuckFlexVar vty gl (arg:spine))
-  StuckRigidVar vty lv spine _ -> Value info <$> (pure $ StuckRigidVar vty lv (arg:spine) (C.VarInfo "_")) -- FIXME
+vApp (Value lam) arg = case lam of
+  FunIntro body vty -> appClosure body arg
+  StuckFlexVar vty gl spine -> Value <$> (pure $ StuckFlexVar vty gl (arg:spine))
+  StuckRigidVar vty lv spine -> Value <$> (pure $ StuckRigidVar vty lv (arg:spine)) -- FIXME
   _ -> pure $ gen ElabBlank
 
 vSplice :: HasCallStack => Value -> Norm Value
@@ -151,7 +149,7 @@ vMeta gl vty = do
 bind :: HasCallStack => Value -> Norm a -> Norm a
 bind ty act = do
   (level, metas, locals, globals) <- ask
-  pure $ runReader act (incLevel level, metas, (gen $ StuckRigidVar ty level [] (C.VarInfo "_")):locals, globals) -- FIXME
+  pure $ runReader act (incLevel level, metas, (gen $ StuckRigidVar ty level []):locals, globals) -- FIXME
 
 define :: HasCallStack => Value -> Norm a -> Norm a
 define val act = do
@@ -180,50 +178,50 @@ index metas locals globals ix ty ix' = case locals of
       index metas xs globals ix ty (ix' - 1)
 
 eval0 :: HasCallStack => C.Term -> Norm Value
-eval0 (C.Term info term) = do
+eval0 (C.Term term) = do
   (_, _, locals, _) <- ask
-  Value info <$> case term of
-    C.Var ix ty info -> Var0 ix <$> eval0 ty <*> pure info
+  Value <$> case term of
+    C.Var ix ty -> Var0 ix <$> eval0 ty
     C.TypeType0 -> pure TypeType0
-    C.FunIntro body ty info -> FunIntro (Closure locals body) <$> eval0 ty <*> pure info
-    C.FunType inTy outTy info -> do
+    C.FunIntro body ty -> FunIntro (Closure locals body) <$> eval0 ty
+    C.FunType inTy outTy -> do
       vInTy <- eval0 inTy
-      pure $ FunType vInTy (Closure locals outTy) info
-    C.FunElim lam arg info -> FunElim0 <$> eval0 lam <*> eval0 arg <*> pure info
+      pure $ FunType vInTy (Closure locals outTy)
+    C.FunElim lam arg -> FunElim0 <$> eval0 lam <*> eval0 arg
     C.QuoteElim quote -> unVal <$> (eval quote >>= vSplice)
     C.ProdIntro ty fields -> ProdIntro <$> eval0 ty <*> mapM eval0 fields
-    C.Letrec defs body info' -> do
+    C.Letrec defs body -> do
       vDefs <- mapM (\def -> blankN (length defs) $ eval0 def) defs
       vBody <- blankN (length defs) $ eval0 body
-      pure $ Letrec0 vDefs vBody info'
+      pure $ Letrec0 vDefs vBody
     C.ElabError s -> pure $ ElabError s
 
 eval :: HasCallStack => C.Term -> Norm Value
-eval (C.Term info term) = do
+eval (C.Term term) = do
   (_, metas, locals, globals) <- ask
   case term of
-    C.Var ix ty _ -> pure $ index metas locals globals ix ty (unIndex ix)
-    C.TypeType0 -> pure $ Value info TypeType0
-    C.TypeType1 -> pure $ Value info TypeType1
-    C.FunIntro body ty info' -> Value info <$> (FunIntro (Closure locals body) <$> eval ty <*> pure info')
-    C.FunType inTy outTy info' -> do
+    C.Var ix ty -> pure $ index metas locals globals ix ty (unIndex ix)
+    C.TypeType0 -> pure $ Value TypeType0
+    C.TypeType1 -> pure $ Value TypeType1
+    C.FunIntro body ty -> Value <$> (FunIntro (Closure locals body) <$> eval ty)
+    C.FunType inTy outTy -> do
       vInTy <- eval inTy
-      pure $ Value info $ (FunType vInTy (Closure locals outTy) info')
-    C.FunElim lam arg _ -> do
+      pure $ Value $ (FunType vInTy (Closure locals outTy))
+    C.FunElim lam arg -> do
       vLam <- eval lam
       vArg <- eval arg
       vApp vLam vArg
-    C.QuoteIntro inner ty -> Value info <$> (QuoteIntro <$> pure inner <*> eval ty)
-    C.QuoteType innerTy -> Value info <$> (QuoteType <$> eval innerTy)
+    C.QuoteIntro inner ty -> Value <$> (QuoteIntro <$> pure inner <*> eval ty)
+    C.QuoteType innerTy -> Value <$> (QuoteType <$> eval innerTy)
     C.QuoteElim quote -> eval quote >>= vSplice
-    C.IndIntro cid cds ty -> Value info <$> (IndIntro cid <$> mapM eval cds <*> eval ty)
-    C.IndType nid indices -> mapM eval indices >>= \is -> pure $ Value info $ IndType nid is
-    C.ProdType nid indices -> mapM eval indices >>= \is -> pure $ Value info $ ProdType nid is
+    C.IndIntro cid cds ty -> Value <$> (IndIntro cid <$> mapM eval cds <*> eval ty)
+    C.IndType nid indices -> mapM eval indices >>= \is -> pure $ Value $ IndType nid is
+    C.ProdType nid indices -> mapM eval indices >>= \is -> pure $ Value $ ProdType nid is
     C.ProdIntro ty fields -> do
       vTy <- eval ty
       vFields <- mapM eval fields
-      pure $ Value info $ ProdIntro vTy vFields
-    C.Letrec defs body _ -> do
+      pure $ Value $ ProdIntro vTy vFields
+    C.Letrec defs body -> do
       let withDefs :: Norm a -> Locals -> Norm a
           withDefs act defs = do
             (level, metas, locals, globals) <- ask
@@ -238,15 +236,15 @@ eval (C.Term info term) = do
     C.InsertedMeta bis gl ty -> case ty of
       Just ty -> eval ty >>= \ty -> vMeta gl (Just ty) >>= \meta -> vAppBis meta locals bis
       Nothing -> vMeta gl Nothing >>= \meta -> vAppBis meta locals bis
-    C.GVar nid ty info' -> case fromJust $ Map.lookup nid globals of
+    C.GVar nid ty -> case fromJust $ Map.lookup nid globals of
       C.TermDef _ def _ -> eval def
-      C.IndDef nid ty _ -> do
+      C.IndDef nid ty -> do
         nTy <- eval ty >>= readback
         eval $ go nTy []
         where
           go :: C.Term -> [C.Term] -> C.Term
           go ty acc = case C.unTerm $ ty of
-            C.FunType inTy outTy (C.FunTypeInfo s) -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy (C.VarInfo $ S.unName s)) : acc)) ty (C.FunIntroInfo 1 s) -- FIXME
+            C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
             C.TypeType1 -> C.gen $ C.IndType nid acc
       C.ConDef nid ty -> do
         nTy <- eval ty >>= readback
@@ -254,7 +252,7 @@ eval (C.Term info term) = do
         where
           go :: C.Term -> [C.Term] -> C.Term
           go ty acc = case C.unTerm $ ty of
-            C.FunType inTy outTy (C.FunTypeInfo s) -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy (C.VarInfo $ S.unName s)) : acc)) ty (C.FunIntroInfo 1 s) -- FIXME
+            C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
             C.IndType tid indices -> C.gen $ C.IndIntro nid acc (C.gen $ C.IndType tid indices)
       C.ProdDef nid ty fields -> do
         nTy <- eval ty >>= readback
@@ -262,14 +260,14 @@ eval (C.Term info term) = do
         where
           go :: C.Term -> [C.Term] -> C.Term
           go ty acc = case C.unTerm ty of
-            C.FunType inTy outTy (C.FunTypeInfo s) -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy (C.VarInfo $ S.unName s)) : acc)) ty (C.FunIntroInfo 1 s) -- FIXME
+            C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
             C.TypeType0 -> C.gen $ C.ProdType nid acc
-      C.ElabBlankItem nid ty -> eval ty >>= \ty -> pure $ Value info $ StuckGVar nid ty info'
-    C.ElabError s -> pure $ Value info (ElabError s)
-    C.ElabBlank -> pure $ Value info ElabBlank
+      C.ElabBlankItem nid ty -> eval ty >>= pure . Value . StuckGVar nid
+    C.ElabError s -> pure $ Value (ElabError s)
+    C.ElabBlank -> pure $ Value ElabBlank
 
 force :: HasCallStack => Value -> Norm Value
-force val@(Value info val') = do
+force val@(Value val') = do
   metas <- askMetas
   case val' of
     StuckFlexVar vty gl spine | Solved sol <- fromJust $ Map.lookup gl metas -> do
@@ -281,51 +279,51 @@ lvToIx :: Level -> Level -> Index
 lvToIx lv1 lv2 = Index (unLevel lv1 - unLevel lv2 - 1)
 
 readbackSpine :: HasCallStack => C.Term -> Spine -> Norm C.Term
-readbackSpine term@(C.Term info term') spine = C.Term info <$> do
+readbackSpine term@(C.Term term') spine = C.Term <$> do
   case spine of
-    arg:spine -> C.FunElim <$> readbackSpine term spine <*> readback arg <*> pure (C.FunElimInfo 1) -- FIXME
+    arg:spine -> C.FunElim <$> readbackSpine term spine <*> readback arg -- FIXME
     [] -> pure term'
 
 readback0 :: HasCallStack => Value -> Norm C.Term
-readback0 (Value info val) = C.Term info <$> case val of
+readback0 (Value val) = C.Term <$> case val of
   TypeType0 -> pure C.TypeType0
-  FunElim0 lam arg info -> C.FunElim <$> readback0 lam <*> readback0 arg <*> pure info
-  Letrec0 defs body info' -> do
+  FunElim0 lam arg -> C.FunElim <$> readback0 lam <*> readback0 arg
+  Letrec0 defs body -> do
     cDefs <- mapM (\def -> blankN (length defs) $ readback0 def) defs
     cBody <- blankN (length defs) $ readback0 body
-    pure $ C.Letrec cDefs cBody info'
+    pure $ C.Letrec cDefs cBody
   ProdIntro ty fields -> do
     cTy <- readback0 ty
     cFields <- mapM readback0 fields
     pure $ C.ProdIntro cTy cFields
-  Var0 ix ty info -> C.Var ix <$> readback0 ty <*> pure info
+  Var0 ix ty -> C.Var ix <$> readback0 ty
   StuckSplice quote -> C.QuoteElim <$> readback quote
 
 -- TODO? replace `bind` with `blank`
 readback :: HasCallStack => Value -> Norm C.Term
 readback val = do
-  (Value info val) <- force val
-  C.Term info <$> case val of
+  (Value val) <- force val
+  C.Term <$> case val of
     StuckFlexVar vty gl spine -> do
       let
         cty = case vty of
           Just vty -> Just <$> readback vty
           Nothing -> pure Nothing
       meta <- C.Meta <$> pure gl <*> cty
-      C.unTerm <$> readbackSpine (C.Term info meta) spine
-    StuckRigidVar vty lv' spine info' -> do
+      C.unTerm <$> readbackSpine (C.Term meta) spine
+    StuckRigidVar vty lv' spine -> do
       lv <- askLv
-      var <- C.Var <$> pure (lvToIx lv lv') <*> readback vty <*> pure info'
-      C.unTerm <$> readbackSpine (C.Term info var) spine
+      var <- C.Var <$> pure (lvToIx lv lv') <*> readback vty
+      C.unTerm <$> readbackSpine (C.Term var) spine
     StuckSplice quote -> C.QuoteElim <$> readback quote
-    FunIntro body vty@(unVal -> FunType inTy _ _) info@(C.FunIntroInfo _ s) -> do
+    FunIntro body vty@(unVal -> FunType inTy _) -> do
       lv <- askLv
-      vBody <- appClosure body (gen $ StuckRigidVar inTy lv [] (C.VarInfo $ S.unName s))
-      C.FunIntro <$> blank (readback vBody) <*> readback vty <*> pure info
-    FunType inTy outTy@(Closure env tmp) info@(C.FunTypeInfo s) -> do
+      vBody <- appClosure body (gen $ StuckRigidVar inTy lv [])
+      C.FunIntro <$> blank (readback vBody) <*> readback vty
+    FunType inTy outTy@(Closure env tmp) -> do
       lv <- askLv
-      vOutTy <- appClosure outTy (gen $ StuckRigidVar inTy lv [] (C.VarInfo $ S.unName s))
-      C.FunType <$> readback inTy <*> blank (readback vOutTy) <*> pure info
+      vOutTy <- appClosure outTy (gen $ StuckRigidVar inTy lv [])
+      C.FunType <$> readback inTy <*> blank (readback vOutTy)
     IndIntro nid cds ty -> C.IndIntro nid <$> mapM readback cds <*> readback ty
     IndType nid indices -> mapM readback indices >>= pure . C.IndType nid
     QuoteIntro inner ty -> C.QuoteIntro <$> (eval0 inner >>= readback) <*> readback ty
@@ -337,7 +335,7 @@ readback val = do
       pure $ C.ProdIntro cTy cFields
     TypeType0 -> pure C.TypeType0
     TypeType1 -> pure C.TypeType1
-    StuckGVar nid ty info -> readback ty >>= \ty -> pure $ C.GVar nid ty info 
+    StuckGVar nid ty -> readback ty >>= pure . C.GVar nid 
     ElabError s -> pure $ C.ElabError s
     ElabBlank -> pure C.ElabBlank
     _ -> error $ "readback: " ++ show (gen val)
