@@ -68,10 +68,10 @@ main = do
   let
     x =
       run .
-      runState (State mempty mempty) .
-      runReader (Context mempty mempty mempty (Level 0) undefined) .
+      runState (State mempty mempty 0) .
+      runReader (Context mempty mempty mempty (Level 0)) .
       (runError :: ErrorC () _ _ -> _ (Either () a)) $
-      check (TermAst (Var (UserName "foo"))) undefined
+      check (TermAst (Pi (NameAst $ UserName $ "_") (TermAst U1) (TermAst U1))) (N.gen N.TypeType1)
   print x
   -- file <- readFile "source.kon"
   -- putStrLn "Start parsing"

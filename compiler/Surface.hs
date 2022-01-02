@@ -35,7 +35,6 @@ data Term
   | Code TermAst
   | Quote TermAst
   | Splice TermAst
-  | Con TermAst [TermAst]
   | Match [ClauseAst]
   | Hole
   deriving Show
