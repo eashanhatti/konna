@@ -19,20 +19,22 @@ import Data.List(intersperse)
 import Numeric.Natural
 import Etc
 
-data MetaEntry a = Solved a | Unsolved
+data MetaEntry = Solved Value | Unsolved
   deriving Show
 
-type Metas = Map.Map Global (MetaEntry Value)
+type Metas = Map.Map Global MetaEntry
 type Globals = Map.Map Id C.Item
 type Locals = [Value]
 
 type Spine = [Value]
 data Closure = Closure [Value] C.Term
+  deriving (Eq, Ord)
 
 -- Type annotation
 type Type = Value
 
 data Value = Value { unVal :: ValueInner }
+  deriving (Eq, Ord)
 
 gen = Value
 
@@ -60,6 +62,7 @@ data ValueInner
   -- Extras
   | LetrecBound Closure
   | ElabError
+  deriving (Eq, Ord)
 
 instance Show Value where
   show (Value v) = case v of

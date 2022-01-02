@@ -15,7 +15,7 @@ import Data.Maybe(isJust)
 import Etc
 
 data BinderInfo = Abstract | Concrete
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 -- type annotation
 type Type = Term
@@ -49,7 +49,7 @@ itemId item = case item of
   ElabBlankItem nid _ -> nid
 data Term = Term
   { unTerm :: TermInner }
-  deriving Eq
+  deriving (Eq, Ord)
 
 gen = Term
 
@@ -75,7 +75,7 @@ data TermInner
   | InsertedMeta [BinderInfo] Global (Maybe Type)
   | ElabError
   | Impossible
-  deriving Eq
+  deriving (Eq, Ord)
 
 -- getType :: Term -> Term
 -- getType (Term _ term) = case term of

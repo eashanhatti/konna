@@ -1,31 +1,35 @@
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GADTs, StandaloneDeriving, FlexibleInstances #-}
 
 module Surface where
 
 import Numeric.Natural
+import {-# SOURCE #-} qualified Core as C
+import Data.Map(Map)
+import Elaboration.Error(Error)
 
-data AstInner a where
-  FocusedAst :: Ast a -> Direction -> AstInner a
-  BlankAst :: AstInner a
-  TermAst :: Term -> AstInner Term
-  NameAst :: Name -> AstInner Name
-  ItemAst :: Item -> AstInner Item
-  ConstructorAst :: Constructor -> AstInner Constructor
-  ClauseAst :: Clause -> AstInner Clause
-
-data Ast a = Ast (AstInner a)
+data Ast a where
+  FocusedAst :: Direction -> Ast a -> Ast a
+  ErrorAst :: [Error] -> Ast a -> Ast a
+  TermAst :: Term -> Ast Term
+  NameAst :: Name -> Ast Name
+  ItemAst :: Item -> Ast Item
+  ConstructorAst :: Constructor -> Ast Constructor
+  ClauseAst :: Clause -> Ast Clause
+deriving instance Show (Ast a)
 
 type NameAst = Ast Name
 data Name = UserName String | MachineName Natural
+  deriving (Show, Eq, Ord)
 
 type TermAst = Ast Term
 data Term
   = Var Name
-  | Lam [Name] TermAst
+  | Lam [NameAst] TermAst
   | App TermAst [TermAst]
   | Ann TermAst TermAst
-  | Pi Name TermAst TermAst
-  | Let Name TermAst TermAst TermAst
+  | Pi NameAst TermAst TermAst
+  | Arrow TermAst TermAst
+  | Let [ItemAst] TermAst
   | U0
   | U1
   | Code TermAst
@@ -34,26 +38,39 @@ data Term
   | Con TermAst [TermAst]
   | Match [ClauseAst]
   | Hole
+  deriving Show
+
+data ItemPart = Sig | Def
+  deriving Show
+data PrevItem
+  = Changed [Name]
+  | Unchanged [Name] (Map ItemPart C.Term)
+  deriving Show
 
 type ItemAst = Ast Item
 data Item
-  = TermDef NameAst TermAst TermAst -- name, dec, def
-  | IndDef NameAst TermAst [Constructor] -- name, dec, constructors
-  | ProdDef NameAst TermAst [TermAst]
+  = TermDef PrevItem NameAst TermAst TermAst -- name, sig, def
+  | IndDef PrevItem NameAst TermAst [ConstructorAst] -- name, sig, constructors
+  | ProdDef PrevItem NameAst TermAst NameAst [TermAst] -- name, sig, constructor name, fields
+  deriving Show
 
 type ConstructorAst = Ast Constructor
-data Constructor = Constructor NameAst TermAst
+data Constructor = Constructor PrevItem NameAst TermAst
+  deriving Show
 
 type ClauseAst = Ast Clause
 data Clause = Clause PatternAst TermAst
+  deriving Show
 
 type PatternAst = Ast Pattern
 data Pattern
   = BindingPat NameAst
   | ConPat NameAst [PatternAst]
   | AppPat [PatternAst]
+  deriving Show
 
 data Direction = Left | Right
+  deriving Show
 
 -- import Data.Map(Map)
 -- import Data.Set(Set)

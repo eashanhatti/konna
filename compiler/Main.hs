@@ -1,16 +1,21 @@
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 module Main where
 
 import qualified Core as C
 import qualified Norm as N
-import qualified Surface as S
 import Surface
 import Var
 import qualified Elaboration as Elab
+import Elaboration.Term
+import Elaboration.Effect
+import Control.Algebra(run)
+import Control.Carrier.Reader(runReader)
+import Control.Carrier.State.Strict(runState)
+import Control.Carrier.Error.Either(runError, ErrorC)
 -- import qualified PartialEval as PE
 import Control.Monad(forM_)
-import Control.Monad.Reader(runReader)
 import Data.Map(toList)
 import Data.Either(fromRight)
 -- import Text.Pretty.Simple(pShow)
@@ -59,7 +64,15 @@ import Prelude hiding(readFile)
 --   ]
 
 main :: IO ()
-main = pure ()
+main = do
+  let
+    x =
+      run .
+      runState (State mempty mempty) .
+      runReader (Context mempty mempty mempty (Level 0) undefined) .
+      (runError :: ErrorC () _ _ -> _ (Either () a)) $
+      check (TermAst (Var (UserName "foo"))) undefined
+  print x
   -- file <- readFile "source.kon"
   -- putStrLn "Start parsing"
   -- let program = e
