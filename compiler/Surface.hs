@@ -1,11 +1,15 @@
-{-# LANGUAGE GADTs, StandaloneDeriving, FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Surface where
 
 import Numeric.Natural
 import {-# SOURCE #-} qualified Core as C
 import Data.Map(Map)
+import Data.Set(Set)
 import Elaboration.Error(Error)
+import Data.Bifunctor
 
 data Ast a where
   FocusedAst :: Direction -> Ast a -> Ast a
@@ -40,21 +44,70 @@ data Term
   deriving Show
 
 data ItemPart = Sig | Def
-  deriving Show
-data PrevItem
-  = Changed [Name]
-  | Unchanged [Name] (Map ItemPart C.Term)
+  deriving (Show, Eq, Ord)
+-- Bool: Must be rechecked. Starts out False for items that have been changed
+-- [Map Name ItemPart]: Dependencies
+-- Map ItemPart C.Term: Old parts, if they have not been changed. Stores a dummy `C.Term` if the item never has one
+data ItemInfo = ItemInfo Bool (Map Name (Set ItemPart)) (Map ItemPart C.Term)
   deriving Show
 
 type ItemAst = Ast Item
 data Item
-  = TermDef PrevItem NameAst TermAst TermAst -- name, sig, def
-  | IndDef PrevItem NameAst TermAst [ConstructorAst] -- name, sig, constructors
-  | ProdDef PrevItem NameAst TermAst NameAst [TermAst] -- name, sig, constructor name, fields
+  = TermDef ItemInfo NameAst TermAst TermAst -- name, sig, def
+  | IndDef ItemInfo NameAst TermAst [ConstructorAst] -- name, sig, constructors
+  | ProdDef ItemInfo NameAst TermAst NameAst [TermAst] -- name, sig, constructor name, fields
   deriving Show
 
+unOldParts :: Item -> Map ItemPart C.Term
+unOldParts = \case
+  TermDef (ItemInfo _ _ ps) _ _ _ -> ps
+  IndDef (ItemInfo _ _ ps) _ _ _ -> ps
+  ProdDef (ItemInfo _ _ ps) _ _ _ _ -> ps
+
+withOldParts :: Map ItemPart C.Term -> Item -> Item
+withOldParts ps = \case
+  TermDef (ItemInfo b d _) n s e -> TermDef (ItemInfo b d ps) n s e
+  IndDef (ItemInfo b d _) n s cs -> IndDef (ItemInfo b d ps) n s cs
+  ProdDef (ItemInfo b d _) n s cn fs -> ProdDef (ItemInfo b d ps) n s cn fs
+
+unShouldRecheck :: Item -> Bool
+unShouldRecheck = \case
+  TermDef (ItemInfo b _ _) _ _ _ -> b
+  IndDef (ItemInfo b _ _) _ _ _ -> b
+  ProdDef (ItemInfo b _ _) _ _ _ _ -> b
+
+withShouldRecheck :: Bool -> Item -> Item
+withShouldRecheck b = \case
+  TermDef (ItemInfo _ d ps) n s e -> TermDef (ItemInfo b d ps) n s e
+  IndDef (ItemInfo _ d ps) n s cs -> IndDef (ItemInfo b d ps) n s cs
+  ProdDef (ItemInfo _ d ps) n s cn fs -> ProdDef (ItemInfo b d ps) n s cn fs
+
+unDependencies :: Item -> Map Name (Set ItemPart)
+unDependencies = \case
+  TermDef (ItemInfo _ d _) _ _ _ -> d
+  IndDef (ItemInfo _ d _) _ _ _ -> d
+  ProdDef (ItemInfo _ d _) _ _ _ _ -> d
+
+unName :: Item -> Name
+unName = \case
+  TermDef _ (NameAst n) _ _ -> n
+  IndDef _ (NameAst n) _ _ -> n
+  ProdDef _ (NameAst n) _ _ _ -> n
+
+unItemInfo :: Item -> ItemInfo
+unItemInfo = \case
+  TermDef i _ _ _ -> i
+  IndDef i _ _ _ -> i
+  ProdDef i _ _ _ _ -> i
+
+unItem :: ItemAst -> (Item, Item -> ItemAst)
+unItem = \case
+  FocusedAst d ast -> second (FocusedAst d .) (unItem ast)
+  ErrorAst es ast -> second (ErrorAst es .) (unItem ast)
+  ItemAst item -> (item, ItemAst)
+
 type ConstructorAst = Ast Constructor
-data Constructor = Constructor PrevItem NameAst TermAst
+data Constructor = Constructor ItemInfo NameAst TermAst
   deriving Show
 
 type ClauseAst = Ast Clause
@@ -70,68 +123,3 @@ data Pattern
 
 data Direction = Left | Right
   deriving Show
-
--- import Data.Map(Map)
--- import Data.Set(Set)
--- import Data.Data(Data)
-
--- data Name = UnfocusedName String | FocusedName String Direction
---   deriving (Show, Eq, Ord, Data)
-
--- pattern Name s <- (unName -> s) where
---   Name s = UnfocusedName s
-
--- unName name = case name of
---   UnfocusedName s -> s
---   FocusedName s _ -> s
-
--- data GName = UnfocusedGName [String] | FocusedGName [String] Direction
---   deriving (Show, Eq, Ord, Data)
-
--- pattern GName ns <- (unGName -> ns) where
---   GName ns = UnfocusedGName ns
-
--- unGName name = case name of
---   UnfocusedGName ns -> ns
---   FocusedGName ns _ -> ns
-
--- data Constructor = FocusedConstructor Name Term | UnfocusedConstructor Name Term | EditorBlankCon
---   deriving (Show, Eq, Data)
-
--- pattern Constructor n t <- (unCon -> (n, t)) where
---   Constructor n t = UnfocusedConstructor n t
-
--- unCon con = case con of
---   UnfocusedConstructor n t -> (n, t)
---   FocusedConstructor n t -> (n, t)
-
--- data Direction = Left | Right
---   deriving (Eq, Ord, Show, Data)
-
--- data Item
---   | TermDef Name Term Term -- name, dec, def
---   | IndDef Name Term [Constructor] -- name, dec, constructors
---   | ProdDef Name Term [Term]
---   | EditorBlankDef
---   | EditorFocusDef Item Direction
---   deriving (Show, Eq, Data)
-
--- data ItemPart = Dec | Def
---   deriving (Eq, Ord, Show)
-
--- data Pattern
---   = BindingPat Name
---   | ConPat GName [Pattern]
---   | AppPat [Pattern]
---   | EditorFocusPat Pattern Direction
---   deriving (Show, Eq, Data)
-
--- data Clause = UnfocusedClause Pattern Term | FocusedClause Pattern Term | EditorBlankClause
---   deriving (Show, Eq, Data)
-
--- pattern Clause p t <- (unClause -> (p, t)) where
---   Clause p t = UnfocusedClause p t
-
--- unClause clause = case clause of
---   UnfocusedClause p t -> (p, t)
---   FocusedClause p t -> (p, t)
