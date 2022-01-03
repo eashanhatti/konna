@@ -39,36 +39,36 @@ instance Show Error where
     Mismatch val val' -> "Mismatched Types:\n  " ++ show val ++ "\n  " ++ show val'
     MismatchSpines s s' -> "Mismatched Spines\n  " ++ show s ++ "\n  " ++ show s'
 
-newtype Unify a = Unify (State (N.Metas, [Error], N.Globals) a)
-  deriving (Functor, Applicative, Monad) via (State (N.Metas, [Error], N.Globals))
+newtype Unify a = Unify (State (N.Metas, [Error]) a)
+  deriving (Functor, Applicative, Monad) via (State (N.Metas, [Error]))
 
-get :: Unify (N.Metas, [Error], N.Globals)
+get :: Unify (N.Metas, [Error])
 get = Unify $ state $ \s -> (s, s)
 
-put :: (N.Metas, [Error], N.Globals) -> Unify ()
+put :: (N.Metas, [Error]) -> Unify ()
 put s = Unify $ state $ \_ -> ((), s)
 
-runUnify :: Unify a -> (N.Metas, [Error], N.Globals) -> (a, (N.Metas, [Error], N.Globals))
+runUnify :: Unify a -> (N.Metas, [Error]) -> (a, (N.Metas, [Error]))
 runUnify (Unify act) s = runState act s
 
 runNorm :: Level -> N.Norm a -> Unify a
 runNorm lv act = do
-  (metas, _, globals) <- get
-  pure $ runReader act (lv, metas, [], globals)
+  (metas, _) <- get
+  pure $ runReader act (lv, metas, [])
 
 putSolution :: Global -> N.Value -> Unify ()
 putSolution gl sol = do
-  (metas, errors, globals) <- get
-  put (Map.insert gl (N.Solved sol) metas, errors, globals)
+  (metas, errors) <- get
+  put (Map.insert gl (N.Solved sol) metas, errors)
 
 putError :: Error -> Unify ()
 putError err = do
-  (metas, errors, globals) <- get
-  put (metas, err:errors, globals)
+  (metas, errors) <- get
+  put (metas, err:errors)
 
 getMetas :: Unify N.Metas
 getMetas = do
-  (metas, _, _) <- get
+  (metas, _) <- get
   pure metas
 
 data PartialRenaming = PartialRenaming
@@ -165,9 +165,9 @@ getTtySpine metas lv vty spine = case (N.unVal vty, spine) of
   (N.FunType inTy outTy, _:spine) -> getTtySpine
     metas
     (incLevel lv)
-    (runReader (N.appClosure outTy (N.gen $ N.StuckRigidVar inTy lv [])) (lv, metas, [], mempty))
+    (runReader (N.appClosure outTy (N.gen $ N.StuckRigidVar inTy lv [])) (lv, metas, []))
     spine
-  (_, []) -> runReader (N.readback vty) (lv, metas, [], mempty)
+  (_, []) -> runReader (N.readback vty) (lv, metas, [])
 
 getTty :: N.Metas -> Level -> N.Value -> C.Term
 getTty metas lv val = case N.unVal val of
@@ -175,7 +175,7 @@ getTty metas lv val = case N.unVal val of
   N.StuckFlexVar Nothing gl spine -> C.gen C.TypeType1 -- runReader (N.readback val) (lv, metas, [], mempty)
   N.StuckRigidVar vty _ spine -> getTtySpine metas lv vty spine
   N.StuckSplice _ -> C.gen C.TypeType1
-  N.FunIntro _ vty -> runReader (N.readback vty) (lv, metas, [], mempty)
+  N.FunIntro _ vty -> runReader (N.readback vty) (lv, metas, [])
   N.FunType inTy _ -> getTty metas lv inTy
   N.QuoteType _ -> C.gen C.TypeType1
   N.QuoteIntro _ _ -> C.gen C.TypeType1
@@ -183,7 +183,7 @@ getTty metas lv val = case N.unVal val of
   N.TypeType1 -> C.gen C.TypeType1
   N.FunElim0 _ _ -> C.gen C.TypeType0
   N.Var0 _ _ -> C.gen C.TypeType0
-  N.IndIntro _ _ ty -> runReader (N.readback ty) (lv, metas, [], mempty)
+  N.IndIntro _ _ ty -> runReader (N.readback ty) (lv, metas, [])
   N.IndType _ _ -> C.gen C.TypeType1
   -- N.Let0 _ _ _ -> C.TypeType0
   N.Letrec0 _ _ -> C.gen C.TypeType0
@@ -194,7 +194,7 @@ getVtySpine metas lv vty spine = case (N.unVal vty, spine) of
   (N.FunType inTy outTy, _:spine) -> getVtySpine
     metas
     (incLevel lv)
-    (runReader (N.appClosure outTy (N.gen $ N.StuckRigidVar inTy lv [])) (lv, metas, [], mempty))
+    (runReader (N.appClosure outTy (N.gen $ N.StuckRigidVar inTy lv [])) (lv, metas, []))
     spine
   (_, []) -> vty
 

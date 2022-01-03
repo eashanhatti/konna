@@ -28,7 +28,6 @@ data State = State
 
 data Context = Context
   { unLocals :: N.Locals
-  , unGlobals :: N.Globals
   , unVarTypes :: Map S.Name (Map N.Value Index)
   , unLevel :: Level
   , binderInfo :: [C.BinderInfo] }
@@ -50,7 +49,7 @@ unify :: Elab sig m => N.Value -> N.Value -> m [U.Error]
 unify val val' = do
   state <- SE.get
   context <- RE.ask
-  let ((), (newMetas, errors, _)) = U.runUnify (U.unify (unLevel context) val val') (unMetas state, [], unGlobals context)
+  let ((), (newMetas, errors)) = U.runUnify (U.unify (unLevel context) val val') (unMetas state, [])
   pure errors
 
 putError :: Elab sig m => Error -> m ()
@@ -72,7 +71,7 @@ closureToValue :: Elab sig m => N.Closure -> N.Value -> m N.Value
 closureToValue closure ty = do
   state <- SE.get
   context <- RE.ask
-  pure $ runReader (N.appClosure closure (N.gen $ N.StuckRigidVar ty (unLevel context) [])) (unLevel context, unMetas state, unLocals context, unGlobals context)
+  pure $ runReader (N.appClosure closure (N.gen $ N.StuckRigidVar ty (unLevel context) [])) (unLevel context, unMetas state, unLocals context)
 
 bind :: Elab sig m => S.Name -> N.Value -> m a -> m a
 bind name ty act = do
@@ -106,13 +105,13 @@ readback :: Elab sig m => N.Value -> m C.Term
 readback val = do
   state <- SE.get
   context <- RE.ask
-  pure $ runReader (N.readback val) (unLevel context, unMetas state, unLocals context, unGlobals context)
+  pure $ runReader (N.readback val) (unLevel context, unMetas state, unLocals context)
 
 eval :: Elab sig m => C.Term -> m N.Value
 eval term = do
   state <- SE.get
   context <- RE.ask
-  pure $ runReader (N.eval term) (unLevel context, unMetas state, unLocals context, unGlobals context)
+  pure $ runReader (N.eval term) (unLevel context, unMetas state, unLocals context)
 
 typeOf :: Elab sig m => N.Value -> m N.Value
 typeOf val = do

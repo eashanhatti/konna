@@ -69,7 +69,7 @@ main = do
     x =
       run .
       runState (State mempty mempty 0) .
-      runReader (Context mempty mempty mempty (Level 0) []) .
+      runReader (Context mempty mempty (Level 0) []) .
       (runError :: ErrorC () _ _ -> _ (Either () a)) $
       check (TermAst (Pi (NameAst $ UserName $ "_") (TermAst U1) (TermAst U1))) (N.gen N.TypeType1)
   print x
