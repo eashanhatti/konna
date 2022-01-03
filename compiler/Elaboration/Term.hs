@@ -17,7 +17,7 @@ import Elaboration.Error
 import Control.Algebra(Has)
 import qualified Control.Effect.Error as EE
 import Data.Bifunctor
-import Data.Map(toList)
+import Data.Map(toList, size)
 import Data.Foldable(find)
 
 check :: Elab sig m => TermAst -> N.Value -> m (C.Term, TermAst)
@@ -31,26 +31,26 @@ check term goal = do
     (ErrorAst _ term, _) -> check term goal
     (TermAst (Var name), _) -> do
       tys <- getVarTypes name
-      case tys of
-        Just tys -> do
+      case size tys of
+        0 -> elabError term (UnboundVar name)
+        _ -> do
           urs <- mapM (\p@(vty, _) -> unify goal vty >>= \errs -> pure (errs, p)) (toList tys)
           case find (null . fst) urs of
             Just (_, (vty, ix)) -> do
               cVty <- readback vty
               pure (C.gen $ C.Var ix cVty, term)
             Nothing -> elabError term (MismatchVarType $ map fst urs)
-        Nothing -> elabError term (UnboundVar name)
     (TermAst (Lam names body), N.FunType _ _) -> do
       (inTys, outTy) <- funType goal
       let
         go :: Elab sig m => [NameAst] -> [(N.Value, N.Value)] -> m (C.Term, TermAst)
-        go ns tys = case (ns, tys) of
+        go = curry \case
           (NameAst n:ns, (ty, lamTy):tys) -> do
             cLamTy <- readback lamTy
             (cLam, bodyAst) <- bind n ty (go ns tys)
             pure (C.gen $ C.FunIntro cLam cLamTy, bodyAst)
           (n:ns, []) -> do
-            putError $ TooManyParams (length inTys) (length names)
+            putError $ ParamNum (length inTys) (length names)
             failElab
           ([], _) -> check body outTy
       go names inTys `onFail` pure (C.gen C.ElabError, term)
@@ -81,10 +81,41 @@ check term goal = do
       (cTerm, term') <- check term (N.gen $ N.QuoteType goal)
       pure (C.gen $ C.QuoteElim cTerm, TermAst $ Splice term')
     (TermAst Hole, _) -> do
-      cMeta <- freshMeta goal >>= readback
-      pure (cMeta, term)
+      meta <- freshMeta goal >>= readback
+      pure (meta, term)
+    (_, _) -> do
+      (cTerm, ty, term') <- infer term
+      unify goal ty >>= mapM (putError . UnifyError)
+      pure (cTerm, term')
   errors <- getErrors
   pure $ (second $ ErrorAst errors) r
+
+infer :: Elab sig m => TermAst -> m (C.Term, N.Value, TermAst)
+infer term = do
+  (cTerm, vTy, term') <- case term of
+    FocusedAst side term -> do
+      (cTerm, ty, term') <- infer term
+      pure (cTerm, ty, FocusedAst side term')
+    ErrorAst _ term -> infer term
+    TermAst (Var name) -> do
+      tys <- getVarTypes name
+      case toList tys of
+        [] -> elabErrorTy term (UnboundVar name)
+        tys@[(ty, ix)] -> do
+          cTy <- readback ty
+          pure (C.gen $ C.Var ix cTy, ty, term)
+        tys -> elabErrorTy term (AmbiguousVar (map fst tys))
+    TermAst (App lam args) -> do
+      (cLam, lamTy, lam') <- infer lam
+      (inTys, outTy) <- funType lamTy
+      if length inTys == length args then do
+        cArgs <- mapM (uncurry check) (zip args (map fst inTys))
+        let cApp = foldl (\l a -> C.gen $ C.FunElim l a) cLam (map fst cArgs)
+        pure (cApp, outTy, TermAst $ App lam' (map snd cArgs))
+      else
+        elabErrorTy term (ArgNum (length inTys) (length args))
+  errors <- getErrors
+  pure (cTerm, vTy, ErrorAst errors term')
 
 funType :: Elab sig m => N.Value -> m ([(N.Value, N.Value)], N.Value)
 funType val = case N.unVal val of

@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Elaboration.Effect where
 
@@ -29,7 +30,8 @@ data Context = Context
   { unLocals :: N.Locals
   , unGlobals :: N.Globals
   , unVarTypes :: Map S.Name (Map N.Value Index)
-  , unLevel :: Level }
+  , unLevel :: Level
+  , binderInfo :: [C.BinderInfo] }
 
 type Elab sig m = (Has (RE.Reader Context) sig m, Has (SE.State State) sig m, Has (EE.Error ()) sig m)
 
@@ -39,8 +41,10 @@ getErrors = do
   SE.put $ state { unErrors = [] }
   pure $ unErrors state
 
-getVarTypes :: Elab sig m => S.Name -> m (Maybe (Map N.Value Index))
-getVarTypes name = lookup name . unVarTypes <$> RE.ask
+getVarTypes :: Elab sig m => S.Name -> m (Map N.Value Index)
+getVarTypes name = lookup name . unVarTypes <$> RE.ask >>= \case
+  Just tys -> pure tys
+  Nothing -> pure mempty
 
 unify :: Elab sig m => N.Value -> N.Value -> m [U.Error]
 unify val val' = do
@@ -59,6 +63,11 @@ elabError ast err = do
   putError err
   pure (C.gen C.ElabError, ast)
 
+elabErrorTy :: Elab sig m => S.Ast a -> Error -> m (C.Term, N.Value, S.Ast a)
+elabErrorTy ast err = do
+  putError err
+  pure (C.gen C.ElabError, N.gen N.ElabError, ast)
+
 closureToValue :: Elab sig m => N.Closure -> N.Value -> m N.Value
 closureToValue closure ty = do
   state <- SE.get
@@ -73,7 +82,8 @@ bind name ty act = do
     (const $ context
       { unLocals = (N.gen $ N.StuckRigidVar ty (unLevel context) []):(unLocals context)
       , unLevel = incLevel (unLevel context)
-      , unVarTypes = insert name (insert ty (Index 0) entry) (unVarTypes context) })
+      , unVarTypes = insert name (insert ty (Index 0) entry) (unVarTypes context)
+      , binderInfo = C.Abstract:(binderInfo context) })
     act
 
 bindUnnamed :: Elab sig m => N.Value -> m a -> m a
@@ -82,7 +92,8 @@ bindUnnamed ty act = do
   RE.local
     (const $ context
       { unLocals = (N.gen $ N.StuckRigidVar ty (unLevel context) []):(unLocals context)
-      , unLevel = incLevel (unLevel context) })
+      , unLevel = incLevel (unLevel context)
+      , binderInfo = C.Abstract:(binderInfo context) })
     act
 
 failElab :: Elab sig m => m a
@@ -112,6 +123,16 @@ typeOf val = do
 freshMeta :: Elab sig m => N.Value -> m N.Value
 freshMeta ty = do
   state <- SE.get
-  let meta = N.gen $ N.StuckFlexVar (Just ty) (Global $ nextMeta state) []
+  context <- RE.ask
+  cTy <- readback ty -- FIXME: Remove this `readback`
+  let meta = C.gen $ C.InsertedMeta (binderInfo context) (Global $ nextMeta state) (Just cTy)
   SE.put $ state { nextMeta = nextMeta state + 1 }
-  pure meta
+  eval meta
+
+freshUnivMeta :: Elab sig m => m N.Value
+freshUnivMeta = do
+  state <- SE.get
+  context <- RE.ask
+  let meta = C.gen $ C.InsertedMeta (binderInfo context) (Global $ nextMeta state) Nothing
+  SE.put $ state { nextMeta = nextMeta state + 1 }
+  eval meta
