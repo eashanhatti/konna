@@ -157,7 +157,6 @@ rename metas gl pren rhs = go pren rhs
         N.Var0 ix ty -> C.gen <$> (C.Var <$> pure ix <*> go pren ty)
         -- N.Let0 def defTy body -> C.Let <$> go pren def <*> go pren defTy <*> go (inc pren) body
         N.Letrec0 defs body -> C.gen <$> (C.Letrec <$> mapM (go (incN (length defs) pren)) defs <*> go (incN (length defs) pren) body)
-        N.StuckGVar nid ty -> go pren ty >>= \ty -> pure $ C.gen $ C.GVar nid ty
         N.ElabError -> liftEither $ Right $ C.gen C.ElabError
         _ -> error $ show val
 
@@ -303,7 +302,6 @@ unify lv val val' = do
     (N.StuckFlexVar (Just vty) gl spine, N.StuckFlexVar (Just vty') gl' spine') | gl == gl' -> do
       unify lv vty vty'
       unifySpines lv spine spine
-    (N.StuckGVar nid _, N.StuckGVar nid' _) | nid == nid' -> pure ()
     (N.StuckFlexVar Nothing gl spine, N.StuckFlexVar Nothing gl' spine') | gl == gl' -> unifySpines lv spine spine
     -- FIXME? Unify types
     (_, N.StuckFlexVar _ gl spine) -> solve lv gl spine val

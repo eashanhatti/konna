@@ -51,7 +51,6 @@ data ValueInner
   | TypeType1
   -- Blocked eliminations
   | StuckFlexVar (Maybe Type) Global Spine
-  | StuckGVar Id Type
   | StuckRigidVar Type Level Spine
   | StuckSplice Value
   -- Object-level terms, should only appear under quotes
@@ -78,7 +77,6 @@ instance Show Value where
     StuckSplice quote -> "v[" ++ show quote ++ "]"
     LetrecBound (Closure _ e) -> "lrb(" ++ show e ++ ")"
     ElabError -> "error"
-    StuckGVar nid ty -> "(vg" ++ show nid ++ " : " ++ show ty ++ ")"
     IndType (Id nid) indices -> "vInd" ++ show nid ++ "[" ++ (concat $ intersperse " " (map show indices)) ++ "]"
     IndIntro (Id nid) args _ -> "(v#" ++ show nid ++ (concat $ intersperse " " (map show args)) ++ ")"
     ProdType nid indices -> "vP" ++ show nid ++ "[" ++ (concat $ intersperse " " (map show indices)) ++ "]"
@@ -232,33 +230,33 @@ eval (C.Term term) = do
     C.InsertedMeta bis gl ty -> case ty of
       Just ty -> eval ty >>= \ty -> vMeta gl (Just ty) >>= \meta -> vAppBis meta locals bis
       Nothing -> vMeta gl Nothing >>= \meta -> vAppBis meta locals bis
-    C.GVar nid ty -> case fromJust $ Map.lookup nid globals of
-      C.TermDef _ def _ -> eval def
-      C.IndDef nid ty -> do
-        nTy <- eval ty >>= readback
-        eval $ go nTy []
-        where
-          go :: C.Term -> [C.Term] -> C.Term
-          go ty acc = case C.unTerm $ ty of
-            C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
-            C.TypeType1 -> C.gen $ C.IndType nid acc
-      C.ConDef nid ty -> do
-        nTy <- eval ty >>= readback
-        eval $ go nTy []
-        where
-          go :: C.Term -> [C.Term] -> C.Term
-          go ty acc = case C.unTerm $ ty of
-            C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
-            C.IndType tid indices -> C.gen $ C.IndIntro nid acc (C.gen $ C.IndType tid indices)
-      C.ProdDef nid ty fields -> do
-        nTy <- eval ty >>= readback
-        eval $ go nTy []
-        where
-          go :: C.Term -> [C.Term] -> C.Term
-          go ty acc = case C.unTerm ty of
-            C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
-            C.TypeType0 -> C.gen $ C.ProdType nid acc
-      C.ElabBlankItem nid ty -> eval ty >>= pure . Value . StuckGVar nid
+    -- C.GVar nid ty -> case fromJust $ Map.lookup nid globals of
+    --   C.TermDef _ def _ -> eval def
+    --   C.IndDef nid ty -> do
+    --     nTy <- eval ty >>= readback
+    --     eval $ go nTy []
+    --     where
+    --       go :: C.Term -> [C.Term] -> C.Term
+    --       go ty acc = case C.unTerm $ ty of
+    --         C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
+    --         C.TypeType1 -> C.gen $ C.IndType nid acc
+    --   C.ConDef nid ty -> do
+    --     nTy <- eval ty >>= readback
+    --     eval $ go nTy []
+    --     where
+    --       go :: C.Term -> [C.Term] -> C.Term
+    --       go ty acc = case C.unTerm $ ty of
+    --         C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
+    --         C.IndType tid indices -> C.gen $ C.IndIntro nid acc (C.gen $ C.IndType tid indices)
+    --   C.ProdDef nid ty fields -> do
+    --     nTy <- eval ty >>= readback
+    --     eval $ go nTy []
+    --     where
+    --       go :: C.Term -> [C.Term] -> C.Term
+    --       go ty acc = case C.unTerm ty of
+    --         C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
+    --         C.TypeType0 -> C.gen $ C.ProdType nid acc
+    --   C.ElabBlankItem nid ty -> eval ty >>= pure . Value . StuckGVar nid
     C.ElabError -> pure $ Value ElabError
 
 force :: HasCallStack => Value -> Norm Value
@@ -330,6 +328,5 @@ readback val = do
       pure $ C.ProdIntro cTy cFields
     TypeType0 -> pure C.TypeType0
     TypeType1 -> pure C.TypeType1
-    StuckGVar nid ty -> readback ty >>= pure . C.GVar nid 
     ElabError -> pure C.ElabError
     _ -> error $ "readback: " ++ show (gen val)
