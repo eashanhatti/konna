@@ -82,27 +82,27 @@ instance Show Value where
     ProdType nid indices -> "vP" ++ show nid ++ "[" ++ (concat $ intersperse " " (map show indices)) ++ "]"
     ProdIntro ty args -> "{" ++ (concat $ intersperse " " (map show args)) ++ "} : " ++ show ty
 
-type Norm a = Reader (Level, Metas, Locals) a
+type Norm a = Reader (Level, Metas, Locals, Globals) a
 
 askLv :: Norm Level
 askLv = do
-  (lv, _, _) <- ask
+  (lv, _, _, _) <- ask
   pure lv
 
 askMetas :: Norm Metas
 askMetas = do
-  (_, metas, _) <- ask
+  (_, metas, _, _) <- ask
   pure metas
 
 askLocals :: Norm Locals
 askLocals = do
-  (_, _, locals) <- ask
+  (_, _, locals, _) <- ask
   pure locals
 
 appClosure :: HasCallStack => Closure -> Value -> Norm Value
 appClosure (Closure locals body) val = do
-  (level, metas, _) <- ask
-  pure $ runReader (eval body) (level, metas, val:locals)
+  (level, metas, _, globals) <- ask
+  pure $ runReader (eval body) (level, metas, val:locals, globals)
 
 vApp :: HasCallStack => Value -> Value -> Norm Value
 vApp (Value lam) arg = case lam of
@@ -142,38 +142,38 @@ vMeta gl vty = do
 
 bind :: HasCallStack => Value -> Norm a -> Norm a
 bind ty act = do
-  (level, metas, locals) <- ask
-  pure $ runReader act (incLevel level, metas, (gen $ StuckRigidVar ty level []):locals) -- FIXME
+  (level, metas, locals, globals) <- ask
+  pure $ runReader act (incLevel level, metas, (gen $ StuckRigidVar ty level []):locals, globals) -- FIXME
 
 define :: HasCallStack => Value -> Norm a -> Norm a
 define val act = do
-  (level, metas, locals) <- ask
-  pure $ runReader act (incLevel level, metas, val:locals)
+  (level, metas, locals, globals) <- ask
+  pure $ runReader act (incLevel level, metas, val:locals, globals)
 
 blank :: HasCallStack => Norm a -> Norm a
 blank act = do
-  (level, metas, locals) <- ask
-  pure $ runReader act (incLevel level, metas, (gen ElabError):locals)
+  (level, metas, locals, globals) <- ask
+  pure $ runReader act (incLevel level, metas, (gen ElabError):locals, globals)
 
 blankN :: HasCallStack => Int -> Norm a -> Norm a
 blankN n act = case n of
   0 -> act
   n -> blank $ blankN (n - 1) act
 
-index :: HasCallStack => Metas -> Locals -> Index -> C.Type -> Int -> Value
-index metas locals ix ty ix' = case locals of
+index :: HasCallStack => Metas -> Locals -> Globals -> Index -> C.Type -> Int -> Value
+index metas locals globals ix ty ix' = case locals of
   [] -> gen ElabError
   x:xs ->
     if ix' == 0 then
       case unVal x of
-        LetrecBound (Closure locals' def) -> runReader (eval def) (Level 0, metas, locals')
+        LetrecBound (Closure locals' def) -> runReader (eval def) (Level 0, metas, locals', globals)
         _ -> x
     else
-      index metas xs ix ty (ix' - 1)
+      index metas xs globals ix ty (ix' - 1)
 
 eval0 :: HasCallStack => C.Term -> Norm Value
 eval0 (C.Term term) = do
-  (_, _, locals) <- ask
+  (_, _, locals, _) <- ask
   Value <$> case term of
     C.Var ix ty -> Var0 ix <$> eval0 ty
     C.TypeType0 -> pure TypeType0
@@ -192,9 +192,9 @@ eval0 (C.Term term) = do
 
 eval :: HasCallStack => C.Term -> Norm Value
 eval (C.Term term) = do
-  (_, metas, locals) <- ask
+  (_, metas, locals, globals) <- ask
   case term of
-    C.Var ix ty -> pure $ index metas locals ix ty (unIndex ix)
+    C.Var ix ty -> pure $ index metas locals globals ix ty (unIndex ix)
     C.TypeType0 -> pure $ Value TypeType0
     C.TypeType1 -> pure $ Value TypeType1
     C.FunIntro body ty -> Value <$> (FunIntro (Closure locals body) <$> eval ty)
@@ -218,8 +218,8 @@ eval (C.Term term) = do
     C.Letrec defs body -> do
       let withDefs :: Norm a -> Locals -> Norm a
           withDefs act defs = do
-            (level, metas, locals) <- ask
-            pure $ runReader act (level, metas, defs ++ locals)
+            (level, metas, locals, globals) <- ask
+            pure $ runReader act (level, metas, defs ++ locals, globals)
       let vDefs = map (\def -> gen $ LetrecBound $ Closure (reverse vDefs ++ locals) def) defs
       -- let !() = trace ("Enter") ()
       -- let !() = traceShow vDefs ()
