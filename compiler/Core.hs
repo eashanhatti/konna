@@ -55,6 +55,7 @@ gen = Term
 
 data TermInner
   = Var Index Type
+  | GVar Id Type
   | TypeType0
   | TypeType1
   | FunIntro Term Type
@@ -118,6 +119,7 @@ instance Show TermInner where
       --   "?" ++ show (unGlobal gl)
     InsertedMeta bis gl ty ->
       "(?" ++ show (unGlobal gl) ++ " : " ++ show ty ++ ";" ++ (show $ Prelude.map show bis) ++ ")"
+    GVar nid ty -> "g" ++ show (unId nid){- ++ ":" ++ show ty ++ ")"-}
     IndIntro (Id nid) args ty -> "#" ++ show nid ++ "[" ++ (concat $ intersperse ", " $ Prelude.map show args) ++ "]" ++ ":(" ++ show ty ++ ")"
     IndType (Id nid) indices -> "Ind" ++ show nid ++ "[" ++ (concat $ intersperse ", " $ Prelude.map show indices) ++ "]"
     IndElim scr bs -> "case " ++ show scr ++ " of" ++ show bs
