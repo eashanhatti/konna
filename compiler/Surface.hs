@@ -45,10 +45,11 @@ data Term
 
 data ItemPart = Sig | Def
   deriving (Show, Eq, Ord)
+-- Natural: ID
 -- Bool: Must be rechecked. Starts out False for items that have been changed
--- [Map Name ItemPart]: Dependencies
--- Map ItemPart C.Term: Old parts, if they have not been changed. Stores a dummy `C.Term` if the item never has one
-data ItemInfo = ItemInfo Bool (Map Name (Set ItemPart)) (Map ItemPart C.Term)
+-- Map Natural (Set ItemPart): Dependencies
+-- Map ItemPart (C.Term, TermAst): Old parts, if they have not been changed. Stores a dummy `C.Term` if the item never has one
+data ItemInfo = ItemInfo Natural Bool (Map Natural (Set ItemPart)) (Map ItemPart (C.Term, TermAst))
   deriving Show
 
 type ItemAst = Ast Item
@@ -58,53 +59,59 @@ data Item
   | ProdDef ItemInfo NameAst TermAst NameAst [TermAst] -- name, sig, constructor name, fields
   deriving Show
 
-unOldParts :: Item -> Map ItemPart C.Term
-unOldParts = \case
-  TermDef (ItemInfo _ _ ps) _ _ _ -> ps
-  IndDef (ItemInfo _ _ ps) _ _ _ -> ps
-  ProdDef (ItemInfo _ _ ps) _ _ _ _ -> ps
+-- unOldParts :: Item -> Map ItemPart (C.Term, TermAst)
+-- unOldParts = \case
+--   TermDef (ItemInfo _ _ _ ps) _ _ _ -> ps
+--   IndDef (ItemInfo _ _ _ ps) _ _ _ -> ps
+--   ProdDef (ItemInfo _ _ _ ps) _ _ _ _ -> ps
 
-withOldParts :: Map ItemPart C.Term -> Item -> Item
-withOldParts ps = \case
-  TermDef (ItemInfo b d _) n s e -> TermDef (ItemInfo b d ps) n s e
-  IndDef (ItemInfo b d _) n s cs -> IndDef (ItemInfo b d ps) n s cs
-  ProdDef (ItemInfo b d _) n s cn fs -> ProdDef (ItemInfo b d ps) n s cn fs
+-- withOldParts :: Map ItemPart (C.Term, TermAst) -> Item -> Item
+-- withOldParts ps = \case
+--   TermDef (ItemInfo i b d _) n s e -> TermDef (ItemInfo i b d ps) n s e
+--   IndDef (ItemInfo i b d _) n s cs -> IndDef (ItemInfo i b d ps) n s cs
+--   ProdDef (ItemInfo i b d _) n s cn fs -> ProdDef (ItemInfo i b d ps) n s cn fs
 
-unShouldRecheck :: Item -> Bool
-unShouldRecheck = \case
-  TermDef (ItemInfo b _ _) _ _ _ -> b
-  IndDef (ItemInfo b _ _) _ _ _ -> b
-  ProdDef (ItemInfo b _ _) _ _ _ _ -> b
+-- unShouldRecheck :: Item -> Bool
+-- unShouldRecheck = \case
+--   TermDef (ItemInfo _ b _ _) _ _ _ -> b
+--   IndDef (ItemInfo _ b _ _) _ _ _ -> b
+--   ProdDef (ItemInfo _ b _ _) _ _ _ _ -> b
 
-withShouldRecheck :: Bool -> Item -> Item
-withShouldRecheck b = \case
-  TermDef (ItemInfo _ d ps) n s e -> TermDef (ItemInfo b d ps) n s e
-  IndDef (ItemInfo _ d ps) n s cs -> IndDef (ItemInfo b d ps) n s cs
-  ProdDef (ItemInfo _ d ps) n s cn fs -> ProdDef (ItemInfo b d ps) n s cn fs
+-- withShouldRecheck :: Bool -> Item -> Item
+-- withShouldRecheck b = \case
+--   TermDef (ItemInfo i _ d ps) n s e -> TermDef (ItemInfo i b d ps) n s e
+--   IndDef (ItemInfo i _ d ps) n s cs -> IndDef (ItemInfo i b d ps) n s cs
+--   ProdDef (ItemInfo i _ d ps) n s cn fs -> ProdDef (ItemInfo i b d ps) n s cn fs
 
-unDependencies :: Item -> Map Name (Set ItemPart)
-unDependencies = \case
-  TermDef (ItemInfo _ d _) _ _ _ -> d
-  IndDef (ItemInfo _ d _) _ _ _ -> d
-  ProdDef (ItemInfo _ d _) _ _ _ _ -> d
+-- unDependencies :: Item -> Map Natural (Set ItemPart)
+-- unDependencies = \case
+--   TermDef (ItemInfo _ _ d _) _ _ _ -> d
+--   IndDef (ItemInfo _ _ d _) _ _ _ -> d
+--   ProdDef (ItemInfo _ _ d _) _ _ _ _ -> d
 
-unName :: Item -> Name
-unName = \case
-  TermDef _ (NameAst n) _ _ -> n
-  IndDef _ (NameAst n) _ _ -> n
-  ProdDef _ (NameAst n) _ _ _ -> n
+-- unId :: Item -> Natural
+-- unId = \case
+--   TermDef (ItemInfo i _ _ _) _ _ _ -> i
+--   IndDef (ItemInfo i _ _ _) _ _ _ -> i
+--   ProdDef (ItemInfo i _ _ _) _ _ _ _ -> i
 
-unItemInfo :: Item -> ItemInfo
-unItemInfo = \case
-  TermDef i _ _ _ -> i
-  IndDef i _ _ _ -> i
-  ProdDef i _ _ _ _ -> i
+-- unName :: Item -> Name
+-- unName = \case
+--   TermDef _ (NameAst n) _ _ -> n
+--   IndDef _ (NameAst n) _ _ -> n
+--   ProdDef _ (NameAst n) _ _ _ -> n
 
-unItem :: ItemAst -> (Item, Item -> ItemAst)
-unItem = \case
-  FocusedAst d ast -> second (FocusedAst d .) (unItem ast)
-  ErrorAst es ast -> second (ErrorAst es .) (unItem ast)
-  ItemAst item -> (item, ItemAst)
+-- unItemInfo :: Item -> ItemInfo
+-- unItemInfo = \case
+--   TermDef i _ _ _ -> i
+--   IndDef i _ _ _ -> i
+--   ProdDef i _ _ _ _ -> i
+
+-- unItem :: ItemAst -> (Item, Item -> ItemAst)
+-- unItem = \case
+--   FocusedAst d ast -> second (FocusedAst d .) (unItem ast)
+--   ErrorAst es ast -> second (ErrorAst es .) (unItem ast)
+--   ItemAst item -> (item, ItemAst)
 
 type ConstructorAst = Ast Constructor
 data Constructor = Constructor ItemInfo NameAst TermAst

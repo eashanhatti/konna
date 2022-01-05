@@ -36,9 +36,12 @@ check term goal = do
         _ -> do
           urs <- mapM (\p@(vty, _) -> unify goal vty >>= \errs -> pure (errs, p)) (toList tys)
           case find (null . fst) urs of
-            Just (_, (vty, ix)) -> do
+            Just (_, (vty, LocalVar ix)) -> do
               cVty <- readback vty
               pure (C.gen $ C.Var ix cVty, term)
+            Just (_, (vty, GlobalVar nid)) -> do
+              cVty <- readback vty
+              pure (C.gen $ C.GVar nid cVty, term)
             Nothing -> elabError term (MismatchVarType $ map fst urs)
     (TermAst (Lam names body), N.FunType _ _) -> do
       (inTys, outTy) <- funType goal
@@ -101,9 +104,12 @@ infer term = do
       tys <- getVarTypes name
       case toList tys of
         [] -> elabErrorTy term (UnboundVar name)
-        tys@[(ty, ix)] -> do
+        tys@[(ty, LocalVar ix)] -> do
           cTy <- readback ty
           pure (C.gen $ C.Var ix cTy, ty, term)
+        tys@[(ty, GlobalVar nid)] -> do
+          cTy <- readback ty
+          pure (C.gen $ C.GVar nid cTy, ty, term)
         tys -> elabErrorTy term (AmbiguousVar (map fst tys))
     TermAst (App lam args) -> do
       (cLam, lamTy, lam') <- infer lam

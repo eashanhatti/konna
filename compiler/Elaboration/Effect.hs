@@ -26,10 +26,12 @@ data State = State
   , nextMeta :: Int }
   deriving Show
 
+data VarEntry = LocalVar Index | GlobalVar Id
+
 data Context = Context
   { unLocals :: N.Locals
   , unGlobals :: N.Globals
-  , unVarTypes :: Map S.Name (Map N.Value Index)
+  , unVarTypes :: Map S.Name (Map N.Value VarEntry)
   , unLevel :: Level
   , binderInfo :: [C.BinderInfo] }
 
@@ -41,7 +43,7 @@ getErrors = do
   SE.put $ state { unErrors = [] }
   pure $ unErrors state
 
-getVarTypes :: Elab sig m => S.Name -> m (Map N.Value Index)
+getVarTypes :: Elab sig m => S.Name -> m (Map N.Value VarEntry)
 getVarTypes name = lookup name . unVarTypes <$> RE.ask >>= \case
   Just tys -> pure tys
   Nothing -> pure mempty
@@ -82,7 +84,7 @@ bind name ty act = do
     (const $ context
       { unLocals = (N.gen $ N.StuckRigidVar ty (unLevel context) []):(unLocals context)
       , unLevel = incLevel (unLevel context)
-      , unVarTypes = insert name (insert ty (Index 0) entry) (unVarTypes context)
+      , unVarTypes = insert name (insert ty (LocalVar $ Index 0) entry) (unVarTypes context)
       , binderInfo = C.Abstract:(binderInfo context) })
     act
 

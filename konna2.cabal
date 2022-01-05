@@ -25,7 +25,7 @@ executable konna_compiler
 
     -- Modules included in this executable, other than Main.
     other-modules:
-        Var, Core, Norm, Surface, Unification, Elaboration, Etc, Elaboration.Effect, Elaboration.Error, Elaboration.Term, Elaboration.Decl
+        Var, Core, Norm, Surface, Unification, Elaboration, Etc, Elaboration.Effect, Elaboration.Error, Elaboration.Term, Elaboration.Items
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
