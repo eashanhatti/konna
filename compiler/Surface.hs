@@ -107,15 +107,21 @@ data Item
 --   IndDef i _ _ _ -> i
 --   ProdDef i _ _ _ _ -> i
 
--- unItem :: ItemAst -> (Item, Item -> ItemAst)
--- unItem = \case
---   FocusedAst d ast -> second (FocusedAst d .) (unItem ast)
---   ErrorAst es ast -> second (ErrorAst es .) (unItem ast)
---   ItemAst item -> (item, ItemAst)
+unItem :: ItemAst -> (Item, Item -> ItemAst)
+unItem = \case
+  FocusedAst d ast -> second (FocusedAst d .) (unItem ast)
+  ErrorAst es ast -> second (ErrorAst es .) (unItem ast)
+  ItemAst item -> (item, ItemAst)
 
 type ConstructorAst = Ast Constructor
 data Constructor = Constructor ItemInfo NameAst TermAst
   deriving Show
+
+unConstructor :: ConstructorAst -> (Constructor, Constructor -> ConstructorAst)
+unConstructor = \case
+  FocusedAst d ast -> second (FocusedAst d .) (unConstructor ast)
+  ErrorAst es ast -> second (ErrorAst es .) (unConstructor ast)
+  ConstructorAst constr -> (constr, ConstructorAst)
 
 type ClauseAst = Ast Clause
 data Clause = Clause PatternAst TermAst

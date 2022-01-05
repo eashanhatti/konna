@@ -38,6 +38,34 @@ data FItem
 
 type ItemList = Map Natural FItem
 
+flatten :: [ItemAst] -> ([FItem], SM.State [FItem] [ItemAst])
+flatten = \case
+  [] -> ([], pure [])
+  (unItem -> (TermDef info name sig body, rebuildItem)):is -> (FTermDef info name sig body : flatItems, rebuild) where
+    (flatItems, rebuildItems) = flatten is
+    rebuild = pop >>= \case
+      FTermDef info name sig body -> (rebuildItem (TermDef info name sig body) :) <$> rebuildItems
+  (unItem -> (IndDef info name sig constrs, rebuildItem)):is -> (FIndDef info name sig : flatConstrs ++ flatItems, rebuild) where
+    (flatItems, rebuildItems) = flatten is
+    (flatConstrs, rebuildConstrs) = flattenConstrs constrs
+    rebuild = pop >>= \case
+      FIndDef info name sig -> do
+        constrs <- rebuildConstrs
+        (rebuildItem (IndDef info name sig constrs) :) <$> rebuildItems
+
+flattenConstrs :: [ConstructorAst] -> ([FItem], SM.State [FItem] [ConstructorAst])
+flattenConstrs = \case
+  [] -> ([], pure [])
+  (unConstructor -> (Constructor info name sig, rebuildConstr)):cs -> (FConDef info name sig : flatConstrs, rebuild) where
+    (flatConstrs, rebuildConstrs) = flattenConstrs cs
+    rebuild = pop >>= \case
+      FConDef info name sig -> (rebuildConstr (Constructor info name sig) :) <$> rebuildConstrs
+
+pop = do
+  is <- SM.get
+  SM.put (tail is)
+  pure (head is)
+
 update :: [FItem] -> [FItem]
 update items = elems (loop (fromList $ zip (map unId items) items)) where
   loop :: ItemList -> ItemList
@@ -102,13 +130,17 @@ dependencies = fromList . map go where
   go :: FItem -> (Natural, Map Natural (Set S.ItemPart))
   go item = (unId item, unDependencies item)
 
-check :: Elab sig m => [FItem] -> m [(C.Item, FItem)]
+check :: Elab sig m => [ItemAst] -> m [(C.Item, ItemAst)]
 check items =
   let
-    deps = dependencies items
-    items' = update items
+    (flatItems, rebuildItems) = flatten items
+    deps = dependencies flatItems
+    flatItems' = update flatItems
   in case ordering deps of
-    Prelude.Right ord -> loop items' ord -- (map (\(unItem -> (item, f)) -> (unName item, f item)) items') ord
+    Prelude.Right ord -> do
+      (cItems, flatItems'') <- unzip <$> loop flatItems' ord
+      let items' = SM.evalState rebuildItems flatItems''
+      pure $ zip cItems items'
     Prelude.Left _ -> error "TODO"
   where
     -- TODO: Use a `Map` instead of a `[]` and preserve item ordering on the AST some other way
