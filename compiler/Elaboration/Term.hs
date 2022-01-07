@@ -103,7 +103,10 @@ check term goal = do
       unify goal ty >>= mapM (putError . UnifyError)
       pure (cTerm, term')
   errors <- getErrors
-  pure $ (second $ ErrorAst errors) r
+  if null errors then
+    pure r
+  else
+    pure $ (second $ ErrorAst errors) r
 
 infer :: Elab sig m => TermAst -> m (C.Term, N.Value, TermAst)
 infer term = do
@@ -132,8 +135,12 @@ infer term = do
         pure (cApp, outTy, TermAst $ App lam' (map snd cArgs))
       else
         elabErrorTy term (ArgNum (length inTys) (length args))
+    _ -> elabErrorTy term Todo
   errors <- getErrors
-  pure (cTerm, vTy, ErrorAst errors term')
+  if null errors then
+    pure (cTerm, vTy, term')
+  else
+    pure (cTerm, vTy, ErrorAst errors term')
 
 funType :: Elab sig m => N.Value -> m ([(N.Value, N.Value)], N.Value)
 funType val = case N.unVal val of

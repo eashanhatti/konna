@@ -24,6 +24,7 @@ data Ast a where
   ItemAst :: Item -> Ast Item
   ConstructorAst :: Constructor -> Ast Constructor
   ClauseAst :: Clause -> Ast Clause
+  PatternAst :: Pattern -> Ast Pattern
 deriving instance Show (Ast a)
 
 instance Data a => Data (Ast a) where
@@ -78,18 +79,14 @@ data Term
 
 data ItemPart = Sig | Def
   deriving (Show, Eq, Ord, Data)
--- Natural: ID
--- Bool: Must be rechecked. Starts out False for items that have been changed
--- Map Natural (Set ItemPart): Dependencies
--- Map ItemPart (C.Term, TermAst): Old parts, if they have not been changed. Stores a dummy `C.Term` if the item never has one
-data ItemInfo = ItemInfo Natural Bool (Map Natural (Set ItemPart)) (Map ItemPart (C.Term, TermAst))
-  deriving (Show, Data)
+
+type SItemInfo = (Map Natural (Set ItemPart), Map ItemPart (C.Term, TermAst))
 
 type ItemAst = Ast Item
 data Item
-  = TermDef ItemInfo NameAst TermAst TermAst -- name, sig, def
-  | IndDef ItemInfo NameAst TermAst [ConstructorAst] -- name, sig, constructors
-  | ProdDef ItemInfo NameAst TermAst NameAst [TermAst] -- name, sig, constructor name, fields
+  = TermDef SItemInfo NameAst TermAst TermAst -- name, sig, def
+  | IndDef SItemInfo NameAst TermAst [ConstructorAst] -- name, sig, constructors
+  | ProdDef SItemInfo NameAst TermAst NameAst [TermAst] -- name, sig, constructor name, fields
   deriving (Show, Data)
 
 unItem :: ItemAst -> (Item, Item -> ItemAst)
@@ -105,7 +102,7 @@ unName (unItem -> (item, _)) = case item of
   ProdDef _ (NameAst name) _ _ _ -> name
 
 type ConstructorAst = Ast Constructor
-data Constructor = Constructor ItemInfo NameAst TermAst
+data Constructor = Constructor SItemInfo NameAst TermAst
   deriving (Show, Data)
 
 unConstructor :: ConstructorAst -> (Constructor, Constructor -> ConstructorAst)

@@ -35,7 +35,7 @@ executable konna_compiler
 
 executable konna_editor
     main-is: Main.hs
-    other-modules: Surface, Elaboration, Norm, Core, Unification, Var, Elaboration.Error, Etc
+    other-modules: Surface, Elaboration, Elaboration.Term, Elaboration.Items, Elaboration.Effect, Norm, Core, Unification, Var, Elaboration.Error, Etc
     build-depends: base ^>=4.15.0.0, text, text-show, mtl, containers, ansi-terminal, binary, bytestring, utf8-string, bifunctors, fused-effects, syz, extra
     hs-source-dirs: editor, compiler
     default-language: Haskell2010

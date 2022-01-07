@@ -14,4 +14,5 @@ data Error
   | ParamNum Int Int -- exp, giv
   | ArgNum Int Int -- exp, giv
   | UnifyError U.Error
+  | Todo
   deriving (Show, Data)

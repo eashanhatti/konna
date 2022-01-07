@@ -3,6 +3,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 module Elaboration.Items where
 
@@ -20,6 +21,7 @@ import Data.Set(Set, member, isSubsetOf, union, difference)
 import qualified Data.Set as Set
 import Data.Bifunctor
 import Numeric.Natural
+import Data.Data(Data)
 import Prelude hiding(Ordering, lookup)
 import qualified Prelude
 
@@ -38,28 +40,31 @@ data FItem
 
 type ItemList = Map Natural FItem
 
-flatten :: [ItemAst] -> ([FItem], SM.State [FItem] [ItemAst])
-flatten = \case
-  [] -> ([], pure [])
-  (unItem -> (TermDef info name sig def, rebuildItem)):is -> (FTermDef info name sig def : flatItems, rebuild) where
-    (flatItems, rebuildItems) = flatten is
-    rebuild = pop >>= \case
-      FTermDef info name sig def -> (rebuildItem (TermDef info name sig def) :) <$> rebuildItems
-  (unItem -> (IndDef info name sig constrs, rebuildItem)):is -> (FIndDef info name sig : flatConstrs ++ flatItems, rebuild) where
-    (flatItems, rebuildItems) = flatten is
-    (flatConstrs, rebuildConstrs) = flattenConstrs constrs
-    rebuild = pop >>= \case
-      FIndDef info name sig -> do
-        constrs <- rebuildConstrs
-        (rebuildItem (IndDef info name sig constrs) :) <$> rebuildItems
+data ItemInfo = ItemInfo Natural Bool (Map Natural (Set ItemPart)) (Map ItemPart (C.Term, TermAst))
+  deriving (Show, Data)
 
-flattenConstrs :: [ConstructorAst] -> ([FItem], SM.State [FItem] [ConstructorAst])
-flattenConstrs = \case
+flatten :: [ItemAst] -> Natural -> ([FItem], SM.State [FItem] [ItemAst])
+flatten items iid = case items of
   [] -> ([], pure [])
-  (unConstructor -> (Constructor info name sig, rebuildConstr)):cs -> (FConDef info name sig : flatConstrs, rebuild) where
-    (flatConstrs, rebuildConstrs) = flattenConstrs cs
+  (unItem -> (TermDef (ds, ps) name sig def, rebuildItem)):is -> (FTermDef (ItemInfo iid False ds ps) name sig def : flatItems, rebuild) where
+    (flatItems, rebuildItems) = flatten is (iid + 1)
     rebuild = pop >>= \case
-      FConDef info name sig -> (rebuildConstr (Constructor info name sig) :) <$> rebuildConstrs
+      FTermDef (ItemInfo _ _ ds ps) name sig def -> (rebuildItem (TermDef (ds, ps) name sig def) :) <$> rebuildItems
+  (unItem -> (IndDef (ds, ps) name sig constrs, rebuildItem)):is -> (FIndDef (ItemInfo iid False ds ps) name sig : flatConstrs ++ flatItems, rebuild) where
+    (flatItems, rebuildItems) = flatten is (iid + fromIntegral (length constrs) + 1)
+    (flatConstrs, rebuildConstrs) = flattenConstrs constrs (iid + 1)
+    rebuild = pop >>= \case
+      FIndDef (ItemInfo _ _ ds ps) name sig -> do
+        constrs <- rebuildConstrs
+        (rebuildItem (IndDef (ds, ps) name sig constrs) :) <$> rebuildItems
+
+flattenConstrs :: [ConstructorAst] -> Natural -> ([FItem], SM.State [FItem] [ConstructorAst])
+flattenConstrs constrs iid = case constrs of
+  [] -> ([], pure [])
+  (unConstructor -> (Constructor (ds, ps) name sig, rebuildConstr)):cs -> (FConDef (ItemInfo iid False ds ps) name sig : flatConstrs, rebuild) where
+    (flatConstrs, rebuildConstrs) = flattenConstrs cs (iid + 1)
+    rebuild = pop >>= \case
+      FConDef (ItemInfo _ _ ds ps) name sig -> (rebuildConstr (Constructor (ds, ps) name sig) :) <$> rebuildConstrs
 
 pop = do
   is <- SM.get
@@ -133,7 +138,7 @@ dependencies = fromList . map go where
 check :: Elab sig m => [ItemAst] -> m [(C.Item, ItemAst)]
 check items =
   let
-    (flatItems, rebuildItems) = flatten items
+    (flatItems, rebuildItems) = flatten items 0
     deps = dependencies flatItems
     flatItems' = update flatItems
   in case ordering deps of
