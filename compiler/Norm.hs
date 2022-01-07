@@ -250,7 +250,7 @@ eval (C.Term term) = do
           go ty acc = case C.unTerm $ ty of
             C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
             C.IndType tid indices -> C.gen $ C.IndIntro nid acc (C.gen $ C.IndType tid indices)
-      C.ProdDef nid ty fields -> do
+      C.ProdDef nid ty -> do
         nTy <- eval ty >>= readback
         eval $ go nTy []
         where
@@ -258,7 +258,7 @@ eval (C.Term term) = do
           go ty acc = case C.unTerm ty of
             C.FunType inTy outTy -> C.gen $ C.FunIntro (go outTy (C.gen (C.Var (Index $ length acc) inTy) : acc)) ty -- FIXME
             C.TypeType0 -> C.gen $ C.ProdType nid acc
-      C.ElabBlankItem nid ty -> eval ty >>= pure . Value . StuckGVar nid
+      C.SigDef nid ty -> eval ty >>= pure . Value . StuckGVar nid
     C.ElabError -> pure $ Value ElabError
 
 force :: HasCallStack => Value -> Norm Value

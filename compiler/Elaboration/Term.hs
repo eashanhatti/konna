@@ -30,7 +30,7 @@ check term goal = do
       pure (cTerm, FocusedAst side term')
     (ErrorAst _ term, _) -> check term goal
     (TermAst (Var name), _) -> do
-      tys <- getVarTypes name
+      tys <- getVarSigs name
       case size tys of
         0 -> elabError term (UnboundVar name)
         _ -> do
@@ -101,7 +101,7 @@ infer term = do
       pure (cTerm, ty, FocusedAst side term')
     ErrorAst _ term -> infer term
     TermAst (Var name) -> do
-      tys <- getVarTypes name
+      tys <- getVarSigs name
       case toList tys of
         [] -> elabErrorTy term (UnboundVar name)
         tys@[(ty, LocalVar ix)] -> do

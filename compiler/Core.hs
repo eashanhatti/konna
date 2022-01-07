@@ -28,25 +28,25 @@ instance Show Program where
 data Item
   = TermDef Id Type Term
   | IndDef Id Type
-  | ProdDef Id Type [Type]
+  | ProdDef Id Type
   | ConDef Id Type
-  | ElabBlankItem Id Type
+  | SigDef Id Type
   deriving Eq
 
 instance Show Item where
   show item = case item of
     TermDef nid body ty -> "def " ++ show nid ++ " : " ++ show ty ++ " = " ++ show body
     IndDef nid ty -> "ind " ++ show nid ++ " : " ++ show ty
-    ProdDef nid ty fields -> "prod " ++ show nid ++ " : " ++ show ty ++ "[" ++ (concat $ intersperse ", " $ map show fields) ++ "]"
+    ProdDef nid ty -> "prod " ++ show nid ++ " : " ++ show ty
     ConDef nid ty -> "con " ++ show nid ++ " : " ++ show ty
-    ElabBlankItem nid _ -> "blank " ++ show nid
+    SigDef nid _ -> "sig " ++ show nid
 
 itemId item = case item of
   TermDef nid _ _ -> nid
   IndDef nid _ -> nid
   ConDef nid _ -> nid
-  ProdDef nid _ _ -> nid
-  ElabBlankItem nid _ -> nid
+  ProdDef nid _ -> nid
+  SigDef nid _ -> nid
 data Term = Term
   { unTerm :: TermInner }
   deriving (Eq, Ord)

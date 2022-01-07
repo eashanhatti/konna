@@ -1,5 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Elaboration.Effect where
 
@@ -13,7 +14,7 @@ import qualified Norm as N
 import qualified Surface as S
 import qualified Unification as U
 import qualified Core as C
-import Data.Map(Map, lookup, insert, singleton)
+import Data.Map(Map, lookup, insert, singleton, (!))
 import Data.Set(Set)
 import Data.Maybe(fromMaybe)
 import Var hiding(unLevel)
@@ -23,7 +24,8 @@ import Prelude hiding (lookup)
 data State = State
   { unErrors :: [Error]
   , unMetas :: N.Metas
-  , nextMeta :: Int }
+  , nextMeta :: Int
+  , nextId :: Int }
   deriving Show
 
 data VarEntry = LocalVar Index | GlobalVar Id
@@ -31,9 +33,10 @@ data VarEntry = LocalVar Index | GlobalVar Id
 data Context = Context
   { unLocals :: N.Locals
   , unGlobals :: N.Globals
-  , unVarTypes :: Map S.Name (Map N.Value VarEntry)
+  , unVarSigs :: Map S.Name (Map N.Value VarEntry)
   , unLevel :: Level
-  , binderInfo :: [C.BinderInfo] }
+  , unBinderInfo :: [C.BinderInfo]
+  , unNamesToIds :: Map S.Name Id }
 
 type Elab sig m = (Has (RE.Reader Context) sig m, Has (SE.State State) sig m, Has (EE.Error ()) sig m)
 
@@ -43,10 +46,14 @@ getErrors = do
   SE.put $ state { unErrors = [] }
   pure $ unErrors state
 
-getVarTypes :: Elab sig m => S.Name -> m (Map N.Value VarEntry)
-getVarTypes name = lookup name . unVarTypes <$> RE.ask >>= \case
-  Just tys -> pure tys
+getVarSigs :: Elab sig m => S.Name -> m (Map N.Value VarEntry)
+getVarSigs name = lookup name . unVarSigs <$> RE.ask >>= \case
+  Just sigs -> pure sigs
   Nothing -> pure mempty
+
+getVar :: Elab sig m => S.Name -> N.Value -> m VarEntry
+getVar name sig = lookup name . unVarSigs <$> RE.ask >>= \case
+  Just (lookup sig -> Just entry) -> pure entry
 
 unify :: Elab sig m => N.Value -> N.Value -> m [U.Error]
 unify val val' = do
@@ -71,32 +78,73 @@ elabErrorTy ast err = do
   pure (C.gen C.ElabError, N.gen N.ElabError, ast)
 
 closureToValue :: Elab sig m => N.Closure -> N.Value -> m N.Value
-closureToValue closure ty = do
+closureToValue closure sig = do
   state <- SE.get
   context <- RE.ask
-  pure $ runReader (N.appClosure closure (N.gen $ N.StuckRigidVar ty (unLevel context) [])) (unLevel context, unMetas state, unLocals context, unGlobals context)
+  pure $ runReader (N.appClosure closure (N.gen $ N.StuckRigidVar sig (unLevel context) [])) (unLevel context, unMetas state, unLocals context, unGlobals context)
 
 bind :: Elab sig m => S.Name -> N.Value -> m a -> m a
-bind name ty act = do
+bind name sig act = do
   context <- RE.ask
-  let entry = fromMaybe mempty (lookup name (unVarTypes context))
+  let entry = fromMaybe mempty (lookup name (unVarSigs context))
   RE.local
     (const $ context
-      { unLocals = (N.gen $ N.StuckRigidVar ty (unLevel context) []):(unLocals context)
+      { unLocals = (N.gen $ N.StuckRigidVar sig (unLevel context) []):(unLocals context)
       , unLevel = incLevel (unLevel context)
-      , unVarTypes = insert name (insert ty (LocalVar $ Index 0) entry) (unVarTypes context)
-      , binderInfo = C.Abstract:(binderInfo context) })
+      , unVarSigs = insert name (insert sig (LocalVar $ Index 0) entry) (unVarSigs context)
+      , unBinderInfo = C.Abstract:(unBinderInfo context) })
     act
 
+bindGlobal :: Elab sig m => S.Name -> C.Term -> m a -> m a
+bindGlobal name sig act = do
+  context <- RE.ask
+  vSig <- eval sig
+  let entry = fromMaybe mempty (lookup name (unVarSigs context))
+  nid <- freshId
+  RE.local
+    (const $ context
+      { unVarSigs = insert name (insert vSig (GlobalVar nid) entry) (unVarSigs context)
+      , unGlobals = insert nid (C.SigDef nid sig) (unGlobals context)
+      , unNamesToIds = insert name nid (unNamesToIds context) })
+    act
+
+data ItemDef
+  = DTermDef C.Term
+  | DIndDef
+  | DProdDef
+  | DConDef
+
+defineGlobal :: Elab sig m => S.Name -> ItemDef -> (C.Item -> m a) -> m a
+defineGlobal name def act = do
+  context <- RE.ask
+  let nid = unNamesToIds context ! name
+  let C.SigDef _ sig = unGlobals context ! nid
+  let
+    item = case def of
+      DTermDef def -> C.TermDef nid sig def
+      DIndDef -> C.IndDef nid sig
+      DProdDef -> C.ProdDef nid sig
+      DConDef -> C.ConDef nid sig
+  RE.local
+    (const $ context
+      { unGlobals = insert nid item (unGlobals context) })
+    (act item)
+
 bindUnnamed :: Elab sig m => N.Value -> m a -> m a
-bindUnnamed ty act = do
+bindUnnamed sig act = do
   context <- RE.ask
   RE.local
     (const $ context
-      { unLocals = (N.gen $ N.StuckRigidVar ty (unLevel context) []):(unLocals context)
+      { unLocals = (N.gen $ N.StuckRigidVar sig (unLevel context) []):(unLocals context)
       , unLevel = incLevel (unLevel context)
-      , binderInfo = C.Abstract:(binderInfo context) })
+      , unBinderInfo = C.Abstract:(unBinderInfo context) })
     act
+
+freshId :: Elab sig m => m Id
+freshId = do
+  state <- SE.get
+  SE.put $ state { nextId = nextId state + 1 }
+  pure $ Id (nextId state)
 
 failElab :: Elab sig m => m a
 failElab = EE.throwError ()
@@ -123,11 +171,11 @@ typeOf val = do
   pure $ U.getVty (unMetas state) (unLevel context) val
 
 freshMeta :: Elab sig m => N.Value -> m N.Value
-freshMeta ty = do
+freshMeta sig = do
   state <- SE.get
   context <- RE.ask
-  cTy <- readback ty -- FIXME: Remove this `readback`
-  let meta = C.gen $ C.InsertedMeta (binderInfo context) (Global $ nextMeta state) (Just cTy)
+  cTy <- readback sig -- FIXME: Remove this `readback`
+  let meta = C.gen $ C.InsertedMeta (unBinderInfo context) (Global $ nextMeta state) (Just cTy)
   SE.put $ state { nextMeta = nextMeta state + 1 }
   eval meta
 
@@ -135,6 +183,6 @@ freshUnivMeta :: Elab sig m => m N.Value
 freshUnivMeta = do
   state <- SE.get
   context <- RE.ask
-  let meta = C.gen $ C.InsertedMeta (binderInfo context) (Global $ nextMeta state) Nothing
+  let meta = C.gen $ C.InsertedMeta (unBinderInfo context) (Global $ nextMeta state) Nothing
   SE.put $ state { nextMeta = nextMeta state + 1 }
   eval meta

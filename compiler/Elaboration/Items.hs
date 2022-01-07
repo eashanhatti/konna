@@ -41,10 +41,10 @@ type ItemList = Map Natural FItem
 flatten :: [ItemAst] -> ([FItem], SM.State [FItem] [ItemAst])
 flatten = \case
   [] -> ([], pure [])
-  (unItem -> (TermDef info name sig body, rebuildItem)):is -> (FTermDef info name sig body : flatItems, rebuild) where
+  (unItem -> (TermDef info name sig def, rebuildItem)):is -> (FTermDef info name sig def : flatItems, rebuild) where
     (flatItems, rebuildItems) = flatten is
     rebuild = pop >>= \case
-      FTermDef info name sig body -> (rebuildItem (TermDef info name sig body) :) <$> rebuildItems
+      FTermDef info name sig def -> (rebuildItem (TermDef info name sig def) :) <$> rebuildItems
   (unItem -> (IndDef info name sig constrs, rebuildItem)):is -> (FIndDef info name sig : flatConstrs ++ flatItems, rebuild) where
     (flatItems, rebuildItems) = flatten is
     (flatConstrs, rebuildConstrs) = flattenConstrs constrs
@@ -149,12 +149,32 @@ check items =
       [] -> pure []
       iids:ord -> do
         let availableItems = filter (flip member iids . unId) items
-        sigs <- fromList <$> mapM declare availableItems
-        items' <- mapM (define sigs) availableItems
-        nextItems <- loop items ord
-        pure $ items' ++ nextItems
-    declare :: Elab sig m => FItem -> m (Natural, (C.Item, FItem))
-    declare item = do
+        sigs <- mapM checkSig availableItems
+        declare (map (bimap fst fst) sigs) $ define (fromList $ map (first snd) sigs) availableItems \items' -> do
+          nextItems <- loop items ord
+          pure $ items' ++ nextItems
+    declare :: Elab sig m => [(Name, C.Term)] -> m [(C.Item, FItem)] -> m [(C.Item, FItem)]
+    declare sigs act = case sigs of
+      [] -> act
+      (name, sig):sigs -> bindGlobal name sig (declare sigs act)
+    define :: Elab sig m => Map Natural (C.Term, TermAst) -> [FItem] -> ([(C.Item, FItem)] -> m [(C.Item, FItem)]) -> m [(C.Item, FItem)]
+    define sigs items act = go items [] where
+      go items acc = case items of
+        [] -> act acc
+        item:items -> do
+          let (cSig, sig) = sigs ! unId item
+          (itemDef, item') <- case item of
+            FTermDef info name _ def -> do
+              vSig <- eval cSig
+              (cDef, def') <- ET.check def vSig
+              pure (DTermDef cDef, FTermDef info name sig def')
+            FIndDef info name sig ->
+              pure (DIndDef, FIndDef info name sig)
+            FConDef info name sig ->
+              pure (DConDef, FConDef info name sig)
+          defineGlobal (unName item) itemDef \cItem -> go items ((cItem, item'):acc)
+    checkSig :: Elab sig m => FItem -> m ((Name, Natural), (C.Term, TermAst))
+    checkSig item = do
       (name, cSig, sig) <- case item of
         FTermDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (NameAst name) _ _ ->
           pure (name, fst sig, snd sig)
@@ -167,14 +187,18 @@ check items =
         FIndDef (ItemInfo _ True _ _) (NameAst name) sig -> do
           (cSig, sig') <- ET.check sig (N.gen N.TypeType1)
           pure (name, cSig, sig')
+        FConDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (NameAst name) _ ->
+          pure (name, fst sig, snd sig)
+        FConDef (ItemInfo _ True _ _) (NameAst name) sig -> do -- TODO: Check for `(x₀ : A₀) -> .. -> (xₙ : Aₙ) -> D` form
+          meta <- freshUnivMeta
+          (cSig, sig') <- ET.check sig meta
+          pure (name, cSig, sig')
         FProdDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (NameAst name) _ ->
           pure (name, fst sig, snd sig)
         FProdDef (ItemInfo _ True _ _) (NameAst name) sig -> do
           (cSig, sig') <- ET.check sig (N.gen N.TypeType1)
           pure (name, cSig, sig')
-      undefined
-    define :: Elab sig m => Map Natural (C.Item, FItem) -> FItem -> m (C.Item, FItem)
-    define = undefined
+      pure ((name, unId item), (cSig, sig))
 
 -- TODO: Clean up
 unId :: FItem -> Natural
@@ -201,19 +225,23 @@ unOldParts = \case
   FIndDef (ItemInfo _ _ _ ps) _ _ -> ps
   FProdDef (ItemInfo _ _ _ ps) _ _ -> ps
   FConDef (ItemInfo _ _ _ ps) _ _ -> ps
+unName :: FItem -> Name
+unName = \case
+  FTermDef _ (NameAst n) _ _ -> n
+  FIndDef _ (NameAst n) _ -> n
+  FProdDef _ (NameAst n) _ -> n
+  FConDef _ (NameAst n) _ -> n
 unInfo :: FItem -> ItemInfo
 unInfo = \case
   FTermDef i _ _ _ -> i
   FIndDef i _ _ -> i
   FProdDef i _ _ -> i
   FConDef i _ _ -> i
-
 withOldParts :: Map ItemPart (C.Term, TermAst) -> FItem -> FItem
 withOldParts ps = \case
   FTermDef (ItemInfo i b d _) n s e -> FTermDef (ItemInfo i b d ps) n s e
   FIndDef (ItemInfo i b d _) n s -> FIndDef (ItemInfo i b d ps) n s
   FProdDef (ItemInfo i b d _) n s -> FProdDef (ItemInfo i b d ps) n s
-
 withShouldRecheck :: Bool -> FItem -> FItem
 withShouldRecheck b = \case
   FTermDef (ItemInfo i _ d ps) n s e -> FTermDef (ItemInfo i b d ps) n s e
