@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Main where
 
@@ -108,6 +109,7 @@ down z = (\f -> (f . fjDown) z) $ case z of
     TermAst (Quote _) -> fjDown
     TermAst (Splice _) -> fjDown
     TermAst Hole -> fjUp
+    TermAst (Let _ _) -> fjDown
 
 down' :: Zipper a -> Zipper a
 down' z = (\f -> f $ fjDown z) $ case z of
@@ -123,6 +125,7 @@ down' z = (\f -> f $ fjDown z) $ case z of
     TermAst (Quote _) -> fjDown
     TermAst (Splice _) -> fjDown
     TermAst Hole -> fjUp
+    TermAst (Let _ _) -> fjDown' . fjDown'
 
 left :: Zipper a -> Maybe (Zipper a)
 left z = case Z.left z of
@@ -171,35 +174,86 @@ handleInput state@(State z d) cmd = case cmd of
   Move Right -> handleRight state
   InsertTerm e -> State (setHole e z) d
   InsertItem i -> State (setHole i z) d
+  SetName s -> case z of
+    (getHole -> Just _ :: Maybe NameAst) -> State (setHole (NameAst s) z) d
+    (getHole -> Just _ :: Maybe TermAst) -> State (setHole (TermAst $ Var s) z) d
+    _ -> state
 
 type Render sig m = Has (SE.State [Error]) sig m
 
 render :: State -> TermAst -> ([Error], T.Text)
 render state ast = run . runState [] $ renderTerm ast where
   renderTerm :: Render sig m => TermAst -> m T.Text
-  renderTerm ast = case ast of
-    FocusedAst Left ast' -> combine [yellowM "{", renderTerm ast', yellowM "]"]
-    FocusedAst Right ast' -> combine [yellowM "[", renderTerm ast', yellowM "}"]
-    ErrorAst errs ast' -> do
+  renderTerm = \case
+    FocusedAst Left ast -> combine [yellowM "{", renderTerm ast, yellowM "]"]
+    FocusedAst Right ast -> combine [yellowM "[", renderTerm ast, yellowM "}"]
+    ErrorAst errs ast -> do
       errs' <- SE.get
       SE.put (errs ++ errs')
-      combine [redM "[", renderTerm ast', redM "]"]
+      combine [redM "[", renderTerm ast, redM "]"]
     TermAst (Var (UserName name)) -> pure $ T.pack name
-    TermAst (Lam names body) -> combine [greenM "λ", T.intercalate " " <$> mapM renderName names, pure ". ", renderTerm body]
-    TermAst Hole -> greenM "?"
+    TermAst (Lam names body) -> combine [pure "λ", T.intercalate " " <$> mapM renderName names, pure ". ", renderTerm body]
+    TermAst (App lam args) -> T.intercalate " " <$> mapM renderTerm (lam:args)
+    TermAst (Pi name inTy outTy) ->
+      combine
+        [ pure "("
+        , renderName name
+        , pure " : "
+        , renderTerm inTy
+        , pure ") -> "
+        , renderTerm outTy ]
+    TermAst (Arrow inTy outTy) -> combine [renderTerm inTy, pure " ~> ", renderTerm outTy]
+    TermAst U0 -> blueM "U0"
+    TermAst U1 -> blueM "U1"
+    TermAst (Code ty) -> combine [blueM "Code ", renderTerm ty]
+    TermAst (Quote term) -> combine [pure "<", renderTerm term, pure ">"]
+    TermAst (Splice term) -> combine [pure "~", renderTerm term]
+    TermAst (Let bindings body) ->
+      combine
+        [ greenM "let"
+        , indentForced . T.intercalate "\n" <$> mapM renderItem bindings
+        , greenM "\nin"
+        , indentForced <$> renderTerm body ]
+    TermAst Hole -> pure "?"
     _ -> error $ show ast
+  renderItem :: Render sig m => ItemAst -> m T.Text
+  renderItem = \case
+    FocusedAst Left ast -> combine [yellowM "{", renderItem ast, yellowM "]"]
+    FocusedAst Right ast -> combine [yellowM "[", renderItem ast, yellowM "}"]
+    ItemAst (TermDef _ name sig def) ->
+      combine
+        [ pure "val "
+        , renderName name
+        , pure " : "
+        , renderTerm sig
+        , pure " = "
+        , renderTerm def]
+    ItemAst (IndDef _ name sig cs) ->
+      combine
+        [ greenM "datatype"
+        , renderName name
+        , pure " : "
+        , renderTerm sig
+        , indentForced . T.intercalate "\n" <$> mapM renderConstr cs]
+  renderConstr :: Render sig m => ConstructorAst -> m T.Text
+  renderConstr = \case
+    FocusedAst Left ast -> combine [yellowM "{", renderConstr ast, yellowM "]"]
+    FocusedAst Right ast -> combine [yellowM "[", renderConstr ast, yellowM "}"]
+    ConstructorAst (Constructor _ name sig) -> combine [renderName name, pure " : ", renderTerm sig]
   renderName :: Render sig m => NameAst -> m T.Text
-  renderName ast = case ast of
-    FocusedAst Left ast' -> combine [yellowM "{", renderName ast', yellowM "]"]
-    FocusedAst Right ast' -> combine [yellowM "[", renderName ast', yellowM "}"]
+  renderName = \case
+    FocusedAst Left ast -> combine [yellowM "{", renderName ast, yellowM "]"]
+    FocusedAst Right ast -> combine [yellowM "[", renderName ast, yellowM "}"]
     NameAst (UserName name) -> pure $ T.pack name
   combine :: Render sig m => [m T.Text] -> m T.Text
-  combine cs = case cs of
+  combine = \case
     [] -> pure ""
     c:cs -> do
       t <- c
       t' <- combine cs
       pure $ t <> t'
+  indentForced :: T.Text -> T.Text
+  indentForced s = (if s == "" then "" else "\n") <> (T.intercalate "\n" $ map ("  "<>) (T.lines s))
 
 red s = "\ESC[31;1m" <> s <> "\ESC[39m"
 green s = "\ESC[32;1m" <> s <> "\ESC[39m"
@@ -229,11 +283,13 @@ parseCommand s (State _ d) = case s of
   "prod " -> Just (InsertItem $ ItemAst $ ProdDef (mempty, mempty) (NameAst $ UserName "_") (TermAst Hole) (NameAst $ UserName "_") [])
   "ind " -> Just (InsertItem $ ItemAst $ IndDef (mempty, mempty) (NameAst $ UserName "_") (TermAst Hole) [])
   "/" -> Just (InsertTerm $ TermAst $ Pi (NameAst $ UserName "_") (TermAst Hole) (TermAst Hole))
+  "~> " -> Just (InsertTerm $ TermAst $ Arrow (TermAst Hole) (TermAst Hole))
+  "let " -> Just (InsertTerm $ TermAst $ Let [ItemAst $ TermDef (mempty, mempty) (NameAst $ UserName "_") (TermAst Hole) (TermAst Hole)] (TermAst Hole))
   "u0 " -> Just (InsertTerm $ TermAst U0)
   "u1 " -> Just (InsertTerm $ TermAst U1)
   "Code " -> Just (InsertTerm $ TermAst $ Code (TermAst Hole))
   "<" -> Just (InsertTerm $ TermAst $ Quote (TermAst Hole))
-  "~" -> Just (InsertTerm $ TermAst $ Splice (TermAst Hole))
+  "~ " -> Just (InsertTerm $ TermAst $ Splice (TermAst Hole))
   "case " -> Just (InsertTerm $ TermAst $ Match [ClauseAst $ Clause (PatternAst $ BindingPat (NameAst $ UserName "_")) (TermAst Hole)])
   _ | last s == ' ' -> Just (SetName $ UserName $ init s)
   _ -> Nothing
