@@ -156,7 +156,7 @@ rename metas gl pren rhs = go pren rhs
         N.FunElim0 lam arg -> C.gen <$> (C.FunElim <$> go pren lam <*> go pren arg)
         N.Var0 ix ty -> C.gen <$> (C.Var <$> pure ix <*> go pren ty)
         -- N.Let0 def defTy body -> C.Let <$> go pren def <*> go pren defTy <*> go (inc pren) body
-        N.Letrec0 defs body -> C.gen <$> (C.Letrec <$> mapM (go (incN (length defs) pren)) defs <*> go (incN (length defs) pren) body)
+        N.Letrec0 defs body -> C.gen <$> (C.Letrec defs <$> go pren body)
         N.StuckGVar nid ty -> go pren ty >>= \ty -> pure $ C.gen $ C.GVar nid ty
         N.ElabError -> liftEither $ Right $ C.gen C.ElabError
         _ -> error $ show val
@@ -317,9 +317,7 @@ unify lv val val' = do
     --   unify lv def def'
     --   unify lv defTy defTy'
     --   unify (incLevel lv) body body'
-    (N.Letrec0 defs body, N.Letrec0 defs' body') -> do
-      mapM (\(def, def') -> unify (incLevelN (length defs) lv) def def') (zip defs defs')
-      unify (incLevelN (length defs) lv) body body'
+    (N.Letrec0 defs body, N.Letrec0 defs' body') -> putError $ Mismatch val val' -- TODO
     (N.ElabError, _) -> pure ()
     (_, N.ElabError) -> pure ()
     _ -> putError $ Mismatch val val'

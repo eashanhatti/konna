@@ -10,6 +10,7 @@ module Norm where
 import Var
 import qualified Core as C
 import qualified Data.Map as Map
+import Data.List(foldl')
 import Data.Maybe(fromJust)
 import Debug.Trace
 import Control.Monad.Reader
@@ -57,7 +58,7 @@ data ValueInner
   -- Object-level terms, should only appear under quotes
   | FunElim0 Value Value
   | Var0 Index Value
-  | Letrec0 [Value] Value
+  | Letrec0 [C.Item] Value
   -- | Let0 Value Value Value
   -- Extras
   | LetrecBound Closure
@@ -152,6 +153,11 @@ define val act = do
   (level, metas, locals, globals) <- ask
   pure $ runReader act (incLevel level, metas, val:locals, globals)
 
+defineGlobal :: HasCallStack => C.Item -> Norm a -> Norm a
+defineGlobal item act = do
+  (level, metas, locals, globals) <- ask
+  pure $ runReader act (level, metas, locals, Map.insert (C.itemId item) item globals)
+
 blank :: HasCallStack => Norm a -> Norm a
 blank act = do
   (level, metas, locals, globals) <- ask
@@ -186,10 +192,7 @@ eval0 (C.Term term) = do
     C.FunElim lam arg -> FunElim0 <$> eval0 lam <*> eval0 arg
     C.QuoteElim quote -> unVal <$> (eval quote >>= vSplice)
     C.ProdIntro ty fields -> ProdIntro <$> eval0 ty <*> mapM eval0 fields
-    C.Letrec defs body -> do
-      vDefs <- mapM (\def -> blankN (length defs) $ eval0 def) defs
-      vBody <- blankN (length defs) $ eval0 body
-      pure $ Letrec0 vDefs vBody
+    C.Letrec defs body -> Letrec0 defs <$> eval0 body
     C.ElabError -> pure ElabError
 
 eval :: HasCallStack => C.Term -> Norm Value
@@ -218,14 +221,11 @@ eval (C.Term term) = do
       vFields <- mapM eval fields
       pure $ Value $ ProdIntro vTy vFields
     C.Letrec defs body -> do
-      let withDefs :: Norm a -> Locals -> Norm a
+      let withDefs :: Norm a -> [C.Item] -> Norm a
           withDefs act defs = do
             (level, metas, locals, globals) <- ask
-            pure $ runReader act (level, metas, defs ++ locals, globals)
-      let vDefs = map (\def -> gen $ LetrecBound $ Closure (reverse vDefs ++ locals) def) defs
-      -- let !() = trace ("Enter") ()
-      -- let !() = traceShow vDefs ()
-      eval body `withDefs` (reverse vDefs)
+            pure $ runReader act (level, metas, locals, foldl' (\gs d -> Map.insert (C.itemId d) d gs) globals defs)
+      eval body `withDefs` defs
     C.Meta gl ty -> case fmap eval ty of
       Just ty -> ty >>= \ty -> vMeta gl (Just ty)
       Nothing -> vMeta gl Nothing
@@ -283,10 +283,7 @@ readback0 :: HasCallStack => Value -> Norm C.Term
 readback0 (Value val) = C.Term <$> case val of
   TypeType0 -> pure C.TypeType0
   FunElim0 lam arg -> C.FunElim <$> readback0 lam <*> readback0 arg
-  Letrec0 defs body -> do
-    cDefs <- mapM (\def -> blankN (length defs) $ readback0 def) defs
-    cBody <- blankN (length defs) $ readback0 body
-    pure $ C.Letrec cDefs cBody
+  Letrec0 defs body -> C.Letrec defs <$> readback0 body
   ProdIntro ty fields -> do
     cTy <- readback0 ty
     cFields <- mapM readback0 fields

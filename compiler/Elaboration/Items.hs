@@ -8,8 +8,8 @@ module Elaboration.Items where
 
 import Elaboration.Effect
 import Elaboration.Error
-import qualified Elaboration.Term as ET
-import Surface as S
+import {-# SOURCE #-} qualified Elaboration.Term as ET
+import Surface as S hiding(unName)
 import qualified Core as C
 import qualified Norm as N
 import qualified Control.Monad.State as SM

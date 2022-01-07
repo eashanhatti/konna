@@ -1,6 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Surface where
 
@@ -112,6 +113,12 @@ unItem = \case
   FocusedAst d ast -> second (FocusedAst d .) (unItem ast)
   ErrorAst es ast -> second (ErrorAst es .) (unItem ast)
   ItemAst item -> (item, ItemAst)
+
+unName :: ItemAst -> Name
+unName (unItem -> (item, _)) = case item of
+  TermDef _ (NameAst name) _ _ -> name
+  IndDef _ (NameAst name) _ _ -> name
+  ProdDef _ (NameAst name) _ _ _ -> name
 
 type ConstructorAst = Ast Constructor
 data Constructor = Constructor ItemInfo NameAst TermAst

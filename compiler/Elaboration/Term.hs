@@ -14,10 +14,11 @@ import qualified Unification as U
 import Var
 import Elaboration.Effect
 import Elaboration.Error
+import qualified Elaboration.Items as EI
 import Control.Algebra(Has)
 import qualified Control.Effect.Error as EE
 import Data.Bifunctor
-import Data.Map(toList, size)
+import Data.Map(toList, size, singleton)
 import Data.Foldable(find)
 
 check :: Elab sig m => TermAst -> N.Value -> m (C.Term, TermAst)
@@ -86,6 +87,17 @@ check term goal = do
     (TermAst Hole, _) -> do
       meta <- freshMeta goal >>= readback
       pure (meta, term)
+    (TermAst (Let bindings body), _) -> do
+      (cBindings, bindings') <- unzip <$> EI.check bindings
+      (cBody, body') <- go (zip cBindings (map unName bindings'))
+      pure (C.gen $ C.Letrec cBindings cBody, TermAst $ Let bindings' body')
+      where
+        go :: Elab sig m => [(C.Item, Name)] -> m (C.Term, TermAst)
+        go = \case
+          [] -> check body goal
+          (C.TermDef _ sig def, name):bs -> bindGlobal name sig $ defineGlobal name (DTermDef def) $ const $ go bs
+          (C.IndDef _ sig, name):bs -> bindGlobal name sig $ defineGlobal name DIndDef $ const $ go bs
+          (C.ConDef _ sig, name):bs -> bindGlobal name sig $ defineGlobal name DConDef $ const $ go bs
     (_, _) -> do
       (cTerm, ty, term') <- infer term
       unify goal ty >>= mapM (putError . UnifyError)

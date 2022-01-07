@@ -31,7 +31,7 @@ data Item
   | ProdDef Id Type
   | ConDef Id Type
   | SigDef Id Type
-  deriving Eq
+  deriving (Eq, Ord)
 
 instance Show Item where
   show item = case item of
@@ -70,7 +70,7 @@ data TermInner
   | ProdType Id [Term]
   | ProdIntro Type [Term]
   | ProdElim Term Term
-  | Letrec [Term] Term
+  | Letrec [Item] Term
   | Meta Global (Maybe Type)
   | InsertedMeta [BinderInfo] Global (Maybe Type)
   | ElabError
