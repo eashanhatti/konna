@@ -65,13 +65,14 @@ import Prelude hiding(readFile)
 
 main :: IO ()
 main = do
-  let
-    x =
-      run .
-      runState (State mempty mempty 0 0) .
-      runReader (Context mempty mempty mempty (Level 0) [] mempty) .
-      (runError :: ErrorC () _ _ -> _ (Either () a)) $
-      check (TermAst (Pi (NameAst $ UserName $ "_") (TermAst U1) (TermAst U1))) (N.gen N.TypeType1)
+  -- let
+  --   x =
+  --     run .
+  --     runState (State mempty mempty 0 0) .
+  --     runReader (Context mempty mempty mempty (Level 0) [] mempty) .
+  --     (runError :: ErrorC () _ _ -> _ (Either () a)) $
+  --     check (TermAst (Pi (NameAst $ UserName $ "_") (TermAst U1) (TermAst U1))) (N.gen N.TypeType1)
+  let x = runElab $ check (TermAst (Pi (NameAst $ UserName $ "_") (TermAst U1) (TermAst U1))) (N.gen N.TypeType1)
   print x
   -- file <- readFile "source.kon"
   -- putStrLn "Start parsing"

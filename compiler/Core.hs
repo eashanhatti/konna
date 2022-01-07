@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 module Core where
 
@@ -13,9 +14,10 @@ import Numeric.Natural
 import Debug.Trace(trace)
 import Data.Maybe(isJust)
 import Etc
+import Data.Data(Data)
 
 data BinderInfo = Abstract | Concrete
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Data)
 
 -- type annotation
 type Type = Term
@@ -31,7 +33,7 @@ data Item
   | ProdDef Id Type
   | ConDef Id Type
   | SigDef Id Type
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Data)
 
 instance Show Item where
   show item = case item of
@@ -49,7 +51,7 @@ itemId item = case item of
   SigDef nid _ -> nid
 data Term = Term
   { unTerm :: TermInner }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Data)
 
 gen = Term
 
@@ -75,7 +77,7 @@ data TermInner
   | InsertedMeta [BinderInfo] Global (Maybe Type)
   | ElabError
   | Impossible
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Data)
 
 -- getType :: Term -> Term
 -- getType (Term _ term) = case term of

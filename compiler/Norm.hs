@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 -- {-# OPTIONS_GHC -fdefer-type-errors #-}
 
 module Norm where
@@ -19,6 +20,7 @@ import GHC.Stack
 import Data.List(intersperse)
 import Numeric.Natural
 import Etc
+import Data.Data(Data)
 
 data MetaEntry = Solved Value | Unsolved
   deriving Show
@@ -29,13 +31,13 @@ type Locals = [Value]
 
 type Spine = [Value]
 data Closure = Closure [Value] C.Term
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Data)
 
 -- Type annotation
 type Type = Value
 
 data Value = Value { unVal :: ValueInner }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Data)
 
 gen = Value
 
@@ -63,7 +65,7 @@ data ValueInner
   -- Extras
   | LetrecBound Closure
   | ElabError
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Data)
 
 instance Show Value where
   show (Value v) = case v of

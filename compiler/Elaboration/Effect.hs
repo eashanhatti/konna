@@ -1,15 +1,17 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 module Elaboration.Effect where
 
-import Control.Algebra(Has)
+import Control.Algebra(Has, run, Algebra)
 import qualified Control.Effect.State as SE
 import qualified Control.Effect.Reader as RE
 import qualified Control.Effect.Error as EE
 import Elaboration.Error
-import Control.Monad.Reader(runReader)
+import qualified Control.Monad.Reader as R
+import Control.Monad.Identity(Identity)
 import qualified Norm as N
 import qualified Surface as S
 import qualified Unification as U
@@ -19,6 +21,9 @@ import Data.Set(Set)
 import Data.Maybe(fromMaybe)
 import Var hiding(unLevel)
 import Numeric.Natural
+import Control.Carrier.Error.Either(runError, ErrorC)
+import Control.Carrier.State.Strict(runState, StateC)
+import Control.Carrier.Reader(runReader, ReaderC)
 import Prelude hiding (lookup)
 
 data State = State
@@ -39,6 +44,14 @@ data Context = Context
   , unNamesToIds :: Map S.Name Id }
 
 type Elab sig m = (Has (RE.Reader Context) sig m, Has (SE.State State) sig m, Has (EE.Error ()) sig m)
+
+runElab :: ErrorC () (ReaderC Context (StateC State Identity)) a -> (State, Either () a)
+runElab act =
+  run .
+  runState (State mempty mempty 0 0) .
+  runReader (Context mempty mempty mempty (Level 0) [] mempty) .
+  (runError{- :: ErrorC () _ _ -> _ (Either () a)-}) $
+  act
 
 getErrors :: Elab sig m => m [Error]
 getErrors = do
@@ -81,7 +94,7 @@ closureToValue :: Elab sig m => N.Closure -> N.Value -> m N.Value
 closureToValue closure sig = do
   state <- SE.get
   context <- RE.ask
-  pure $ runReader (N.appClosure closure (N.gen $ N.StuckRigidVar sig (unLevel context) [])) (unLevel context, unMetas state, unLocals context, unGlobals context)
+  pure $ R.runReader (N.appClosure closure (N.gen $ N.StuckRigidVar sig (unLevel context) [])) (unLevel context, unMetas state, unLocals context, unGlobals context)
 
 bind :: Elab sig m => S.Name -> N.Value -> m a -> m a
 bind name sig act = do
@@ -156,13 +169,13 @@ readback :: Elab sig m => N.Value -> m C.Term
 readback val = do
   state <- SE.get
   context <- RE.ask
-  pure $ runReader (N.readback val) (unLevel context, unMetas state, unLocals context, unGlobals context)
+  pure $ R.runReader (N.readback val) (unLevel context, unMetas state, unLocals context, unGlobals context)
 
 eval :: Elab sig m => C.Term -> m N.Value
 eval term = do
   state <- SE.get
   context <- RE.ask
-  pure $ runReader (N.eval term) (unLevel context, unMetas state, unLocals context, unGlobals context)
+  pure $ R.runReader (N.eval term) (unLevel context, unMetas state, unLocals context, unGlobals context)
 
 typeOf :: Elab sig m => N.Value -> m N.Value
 typeOf val = do

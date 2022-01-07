@@ -3,6 +3,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 -- {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 -- {-# OPTIONS_GHC -fdefer-type-errors #-}
 
@@ -23,6 +24,7 @@ import Control.Monad(ap, liftM, forM_)
 import qualified Data.Set as Set
 import GHC.Stack
 import Debug.Trace
+import Data.Data(Data)
 
 data Error
   = InvalidSpine
@@ -30,6 +32,7 @@ data Error
   | EscapingVar
   | Mismatch N.Value N.Value
   | MismatchSpines N.Spine N.Spine
+  deriving Data
 
 instance Show Error where
   show e = case e of
