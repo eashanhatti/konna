@@ -24,6 +24,9 @@ import Numeric.Natural
 import Data.Data(Data)
 import Prelude hiding(Ordering, lookup)
 import qualified Prelude
+import Etc
+import Debug.Trace
+import Data.Maybe(fromJust)
 
 -- Given twp items A and B, and B depends on A
 -- "Has changed" vs "must be rechecked"
@@ -37,14 +40,15 @@ data FItem
   | FIndDef ItemInfo NameAst TermAst
   | FProdDef ItemInfo NameAst TermAst
   | FConDef ItemInfo NameAst TermAst
+  deriving Show
 
-type ItemList = Map Natural FItem
+type ItemList = [(Natural, FItem)]
 
 data ItemInfo = ItemInfo Natural Bool (Map Natural (Set ItemPart)) (Map ItemPart (C.Term, TermAst))
   deriving (Show, Data)
 
 flatten :: [ItemAst] -> Natural -> ([FItem], SM.State [FItem] [ItemAst])
-flatten items iid = case items of
+flatten items iid = tr "flatten" $ case items of
   [] -> ([], pure [])
   (unItem -> (TermDef (ds, ps) name sig def, rebuildItem)):is -> (FTermDef (ItemInfo iid False ds ps) name sig def : flatItems, rebuild) where
     (flatItems, rebuildItems) = flatten is (iid + 1)
@@ -72,20 +76,20 @@ pop = do
   pure (head is)
 
 update :: [FItem] -> [FItem]
-update items = elems (loop (fromList $ zip (map unId items) items)) where
+update items = tr "update" $ map snd (loop (zip (map unId items) items)) where
   loop :: ItemList -> ItemList
   loop items =
     let
       items' = step items
     in
-      if all (uncurry noChange) (map (bimap unInfo unInfo) $ zip (map snd $ toList items) (map snd $ toList items')) then
+      if all (uncurry noChange) (map (bimap unInfo unInfo) $ traceShowId $ zip (map snd items) (map snd items')) then
         items'
       else
         loop items'
   noChange :: ItemInfo -> ItemInfo -> Bool
-  noChange (ItemInfo i b d ps) (ItemInfo i' b' d' ps') = i == i' && b && b' && d == d' && keysSet ps == keysSet ps'
+  noChange (ItemInfo i b d ps) (ItemInfo i' b' d' ps') = i == i' && b == b' && d == d' && keysSet ps == keysSet ps'
   step :: ItemList -> ItemList
-  step items = fmap (go items) items
+  step items = map (second $ go items) items
   -- Inspecting B
   go :: ItemList -> FItem -> FItem
   go items item =
@@ -95,12 +99,12 @@ update items = elems (loop (fromList $ zip (map unId items) items)) where
         [] -> pure ()
         (iid, dep):deps -> do
           when (member Sig dep)
-            case items ! iid of
+            case fromJust $ Prelude.lookup iid items of
               (hasChanged Sig -> True) -> SM.modify $ first (|| True)
               (hasChanged Def -> True) -> SM.modify $ bimap (|| True) (delete Sig)
               _ -> pure ()
           when (member Def dep)
-            case items ! iid of
+            case fromJust $ Prelude.lookup iid items of
               (hasChanged Sig -> True) -> SM.modify $ first (|| True)
               (hasChanged Def -> True) -> SM.modify $ second (delete Def)
               _ -> pure ()
