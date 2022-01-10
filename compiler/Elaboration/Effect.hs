@@ -29,8 +29,8 @@ import Prelude hiding (lookup)
 data State = State
   { unErrors :: [Error]
   , unMetas :: N.Metas
-  , nextMeta :: Int
-  , nextId :: Int }
+  , unNextMeta :: Int
+  , unNextId :: Int }
   deriving Show
 
 data VarEntry = LocalVar Index | GlobalVar Id
@@ -156,8 +156,8 @@ bindUnnamed sig act = do
 freshId :: Elab sig m => m Id
 freshId = do
   state <- SE.get
-  SE.put $ state { nextId = nextId state + 1 }
-  pure $ Id (nextId state)
+  SE.put $ state { unNextId = unNextId state + 1 }
+  pure $ Id (unNextId state)
 
 failElab :: Elab sig m => m a
 failElab = EE.throwError ()
@@ -188,14 +188,19 @@ freshMeta sig = do
   state <- SE.get
   context <- RE.ask
   cTy <- readback sig -- FIXME: Remove this `readback`
-  let meta = C.gen $ C.InsertedMeta (unBinderInfo context) (Global $ nextMeta state) (Just cTy)
-  SE.put $ state { nextMeta = nextMeta state + 1 }
+  let meta = C.gen $ C.InsertedMeta (unBinderInfo context) (Global $ unNextMeta state) (Just cTy)
+  vMeta <- eval meta
+  SE.put $ state
+    { unNextMeta = unNextMeta state + 1
+    , unMetas = insert (Global $ unNextMeta state) N.Unsolved (unMetas state) }
   eval meta
 
 freshUnivMeta :: Elab sig m => m N.Value
 freshUnivMeta = do
   state <- SE.get
   context <- RE.ask
-  let meta = C.gen $ C.InsertedMeta (unBinderInfo context) (Global $ nextMeta state) Nothing
-  SE.put $ state { nextMeta = nextMeta state + 1 }
+  let meta = C.gen $ C.InsertedMeta (unBinderInfo context) (Global $ unNextMeta state) Nothing
+  SE.put $ state
+    { unNextMeta = unNextMeta state + 1
+    , unMetas = insert (Global $ unNextMeta state) N.Unsolved (unMetas state) }
   eval meta

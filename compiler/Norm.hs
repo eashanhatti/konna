@@ -12,7 +12,7 @@ import Var
 import qualified Core as C
 import qualified Data.Map as Map
 import Data.List(foldl')
-import Data.Maybe(fromJust)
+import Data.Maybe(fromJust, fromMaybe)
 import Debug.Trace
 import Control.Monad.Reader
 import qualified Data.Set as Set
@@ -141,7 +141,7 @@ vAppBis val locals bis = do
 vMeta :: HasCallStack => Global -> Maybe Type -> Norm Value
 vMeta gl vty = do
   metas <- askMetas
-  pure $ case fromJust $ Map.lookup gl metas of
+  pure $ case fromMaybe (error $ show gl) $ Map.lookup gl metas of
     Solved sol -> sol
     Unsolved -> gen $ StuckFlexVar vty gl []
 
@@ -163,7 +163,7 @@ defineGlobal item act = do
 blank :: HasCallStack => Norm a -> Norm a
 blank act = do
   (level, metas, locals, globals) <- ask
-  pure $ runReader act (incLevel level, metas, (gen ElabError):locals, globals)
+  pure $ runReader act (incLevel level, metas, undefined:locals, globals)
 
 blankN :: HasCallStack => Int -> Norm a -> Norm a
 blankN n act = case n of

@@ -48,13 +48,15 @@ data ItemInfo = ItemInfo Natural Bool (Map Natural (Set ItemPart)) (Map ItemPart
   deriving (Show, Data)
 
 flatten :: [ItemAst] -> Natural -> ([FItem], SM.State [FItem] [ItemAst])
-flatten items iid = tr "flatten" $ case items of
+flatten items iid = case items of
   [] -> ([], pure [])
-  (unItem -> (TermDef (ds, ps) name sig def, rebuildItem)):is -> (FTermDef (ItemInfo iid False ds ps) name sig def : flatItems, rebuild) where
+  (unItem -> (TermDef (ds, ps) name sig def, rebuildItem)):is -> (FTermDef (ItemInfo iid shouldRecheck ds ps) name sig def : flatItems, rebuild) where
+    shouldRecheck = not $ member Sig (keysSet ps) && member Def (keysSet ps)
     (flatItems, rebuildItems) = flatten is (iid + 1)
     rebuild = pop >>= \case
       FTermDef (ItemInfo _ _ ds ps) name sig def -> (rebuildItem (TermDef (ds, ps) name sig def) :) <$> rebuildItems
-  (unItem -> (IndDef (ds, ps) name sig constrs, rebuildItem)):is -> (FIndDef (ItemInfo iid False ds ps) name sig : flatConstrs ++ flatItems, rebuild) where
+  (unItem -> (IndDef (ds, ps) name sig constrs, rebuildItem)):is -> (FIndDef (ItemInfo iid shouldRecheck ds ps) name sig : flatConstrs ++ flatItems, rebuild) where
+    shouldRecheck = not $ member Sig (keysSet ps) && member Def (keysSet ps)
     (flatItems, rebuildItems) = flatten is (iid + fromIntegral (length constrs) + 1)
     (flatConstrs, rebuildConstrs) = flattenConstrs constrs (iid + 1)
     rebuild = pop >>= \case
@@ -65,7 +67,8 @@ flatten items iid = tr "flatten" $ case items of
 flattenConstrs :: [ConstructorAst] -> Natural -> ([FItem], SM.State [FItem] [ConstructorAst])
 flattenConstrs constrs iid = case constrs of
   [] -> ([], pure [])
-  (unConstructor -> (Constructor (ds, ps) name sig, rebuildConstr)):cs -> (FConDef (ItemInfo iid False ds ps) name sig : flatConstrs, rebuild) where
+  (unConstructor -> (Constructor (ds, ps) name sig, rebuildConstr)):cs -> (FConDef (ItemInfo iid shouldRecheck ds ps) name sig : flatConstrs, rebuild) where
+    shouldRecheck = not $ member Sig (keysSet ps) && member Def (keysSet ps)
     (flatConstrs, rebuildConstrs) = flattenConstrs cs (iid + 1)
     rebuild = pop >>= \case
       FConDef (ItemInfo _ _ ds ps) name sig -> (rebuildConstr (Constructor (ds, ps) name sig) :) <$> rebuildConstrs
@@ -76,7 +79,7 @@ pop = do
   pure (head is)
 
 update :: [FItem] -> [FItem]
-update items = tr "update" $ map snd (loop (zip (map unId items) items)) where
+update items = map snd (loop (zip (map unId items) items)) where
   loop :: ItemList -> ItemList
   loop items =
     let
