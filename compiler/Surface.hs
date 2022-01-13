@@ -59,6 +59,12 @@ type NameAst = Ast Name
 data Name = UserName String | MachineName Natural
   deriving (Show, Eq, Ord, Data)
 
+unName :: NameAst -> (Name, Name -> NameAst)
+unName = \case
+  FocusedAst d ast -> second (FocusedAst d .) (unName ast)
+  ErrorAst es ast -> second (ErrorAst es .) (unName ast)
+  NameAst name -> (name, NameAst)
+
 type TermAst = Ast Term
 data Term
   = Var Name
@@ -95,8 +101,8 @@ unItem = \case
   ErrorAst es ast -> second (ErrorAst es .) (unItem ast)
   ItemAst item -> (item, ItemAst)
 
-unName :: ItemAst -> Name
-unName (unItem -> (item, _)) = case item of
+unItemName :: ItemAst -> Name
+unItemName (unItem -> (item, _)) = case item of
   TermDef _ (NameAst name) _ _ -> name
   IndDef _ (NameAst name) _ _ -> name
   ProdDef _ (NameAst name) _ _ _ -> name

@@ -1,0 +1,9 @@
+let {
+  datatype Bool : U1 {
+    true : Bool;
+    false : Bool;
+  };
+  val x : U0 = _;
+} in {
+  x
+}

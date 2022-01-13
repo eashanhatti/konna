@@ -10,7 +10,7 @@ module Elaboration.Items where
 import Elaboration.Effect
 import Elaboration.Error
 import {-# SOURCE #-} qualified Elaboration.Term as ET
-import Surface as S hiding(unName)
+import Surface hiding(unItemName)
 import qualified Core as C
 import qualified Norm as N
 import qualified Control.Monad.State as SM
@@ -85,7 +85,7 @@ update items = map snd (loop (zip (map unId items) items)) where
     let
       items' = step items
     in
-      if all (uncurry noChange) (map (bimap unInfo unInfo) $ traceShowId $ zip (map snd items) (map snd items')) then
+      if all (uncurry noChange) (map (bimap unInfo unInfo) $ zip (map snd items) (map snd items')) then
         items'
       else
         loop items'
@@ -117,7 +117,7 @@ update items = map snd (loop (zip (map unId items) items)) where
   hasChanged :: ItemPart -> FItem -> Bool
   hasChanged part item = notMember part (unOldParts item)
 
-type Graph = Map Natural (Map Natural (Set S.ItemPart))
+type Graph = Map Natural (Map Natural (Set ItemPart))
 type Cycles = [(Natural, [Natural])]
 type Ordering = [Set Natural]
 
@@ -139,7 +139,7 @@ ordering graph = case cycles graph of
 
 dependencies :: [FItem] -> Graph
 dependencies = fromList . map go where
-  go :: FItem -> (Natural, Map Natural (Set S.ItemPart))
+  go :: FItem -> (Natural, Map Natural (Set ItemPart))
   go item = (unId item, unDependencies item)
 
 check :: Elab sig m => [ItemAst] -> m [(C.Item, ItemAst)]
@@ -184,32 +184,33 @@ check items =
               pure (DIndDef, FIndDef info name sig)
             FConDef info name sig ->
               pure (DConDef, FConDef info name sig)
-          defineGlobal (unName item) itemDef \cItem -> go items ((cItem, item'):acc)
+          defineGlobal (unItemName item) itemDef \cItem -> go items ((cItem, item'):acc)
     checkSig :: Elab sig m => FItem -> m ((Name, Natural), (C.Term, TermAst))
     checkSig item = do
       (name, cSig, sig) <- case item of
-        FTermDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (NameAst name) _ _ ->
+        FTermDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (unName -> (name, _)) _ _ ->
           pure (name, fst sig, snd sig)
-        FTermDef (ItemInfo _ True _ _) (NameAst name) sig _ -> do
+        FTermDef (ItemInfo _ True _ _) (unName -> (name, _)) sig _ -> do
           meta <- freshUnivMeta
           (cSig, sig') <- ET.check sig meta
           pure (name, cSig, sig')
-        FIndDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (NameAst name) _ ->
+        FIndDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (unName -> (name, _)) _ ->
           pure (name, fst sig, snd sig)
-        FIndDef (ItemInfo _ True _ _) (NameAst name) sig -> do
+        FIndDef (ItemInfo _ True _ _) (unName -> (name, _)) sig -> do
           (cSig, sig') <- ET.check sig (N.gen N.TypeType1)
           pure (name, cSig, sig')
-        FConDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (NameAst name) _ ->
+        FConDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (unName -> (name, _)) _ ->
           pure (name, fst sig, snd sig)
-        FConDef (ItemInfo _ True _ _) (NameAst name) sig -> do -- TODO: Check for `(x₀ : A₀) -> .. -> (xₙ : Aₙ) -> D` form
+        FConDef (ItemInfo _ True _ _) (unName -> (name, _)) sig -> do -- TODO: Check for `(x₀ : A₀) -> .. -> (xₙ : Aₙ) -> D` form
           meta <- freshUnivMeta
           (cSig, sig') <- ET.check sig meta
           pure (name, cSig, sig')
-        FProdDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (NameAst name) _ ->
+        FProdDef (ItemInfo _ False _ (lookup Sig -> Just sig)) (unName -> (name, _)) _ ->
           pure (name, fst sig, snd sig)
-        FProdDef (ItemInfo _ True _ _) (NameAst name) sig -> do
+        FProdDef (ItemInfo _ True _ _) (unName -> (name, _)) sig -> do
           (cSig, sig') <- ET.check sig (N.gen N.TypeType1)
           pure (name, cSig, sig')
+        _ -> error $ show item
       pure ((name, unId item), (cSig, sig))
 
 -- TODO: Clean up
@@ -237,8 +238,8 @@ unOldParts = \case
   FIndDef (ItemInfo _ _ _ ps) _ _ -> ps
   FProdDef (ItemInfo _ _ _ ps) _ _ -> ps
   FConDef (ItemInfo _ _ _ ps) _ _ -> ps
-unName :: FItem -> Name
-unName = \case
+unItemName :: FItem -> Name
+unItemName = \case
   FTermDef _ (NameAst n) _ _ -> n
   FIndDef _ (NameAst n) _ -> n
   FProdDef _ (NameAst n) _ -> n

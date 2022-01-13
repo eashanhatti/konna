@@ -89,7 +89,7 @@ check term goal = do
       pure (meta, term)
     (TermAst (Let bindings body), _) -> do
       (cBindings, bindings') <- unzip <$> EI.check bindings
-      (cBody, body') <- go (zip cBindings (map unName bindings'))
+      (cBody, body') <- go (zip cBindings (map unItemName bindings'))
       pure (C.gen $ C.Letrec cBindings cBody, TermAst $ Let bindings' body')
       where
         go :: Elab sig m => [(C.Item, Name)] -> m (C.Term, TermAst)

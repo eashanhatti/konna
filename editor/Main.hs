@@ -58,12 +58,14 @@ holeIsList :: Zipper a -> Bool
 holeIsList z = case z of
   (getHole -> Just _ :: Maybe [TermAst]) -> True
   (getHole -> Just _ :: Maybe [NameAst]) -> True
+  (getHole -> Just _ :: Maybe [ItemAst]) -> True
   _ -> False
 
 holeIsEmptyList :: Zipper a -> Bool
 holeIsEmptyList z = case z of
   (getHole -> Just [] :: Maybe [TermAst]) -> True
   (getHole -> Just [] :: Maybe [NameAst]) -> True
+  (getHole -> Just [] :: Maybe [ItemAst]) -> True
   _ -> False
 
 moveListLast :: Zipper a -> Zipper a
@@ -82,6 +84,7 @@ moveOutList z =
 
 fjDown = fromJust . Z.down
 fjDown' = fromJust . Z.down'
+fjRight = fromJust . Z.right
 fjUp = fromJust . Z.up
 
 atomic :: Data a => a -> Bool
@@ -93,7 +96,7 @@ atomic f = case f of
     TermAst Hole -> True
     TermAst _ -> False
   (cast -> Just n :: Maybe NameAst) -> True
-  _ -> error $ show $ typeOf f
+  (cast -> Just i :: Maybe ItemAst) -> False
 
 down :: Zipper a -> Zipper a
 down z = (\f -> (f . fjDown) z) $ case z of
@@ -110,6 +113,10 @@ down z = (\f -> (f . fjDown) z) $ case z of
     TermAst (Splice _) -> fjDown
     TermAst Hole -> fjUp
     TermAst (Let _ _) -> fjDown
+  (getHole -> Just i :: Maybe ItemAst) -> case i of
+    ItemAst (TermDef _ _ _ _) -> fjDown
+    ItemAst (IndDef _ _ _ _) -> fjDown' . fjDown
+    ItemAst (ProdDef _ _ _ _ _) -> fjDown' . fjDown
 
 down' :: Zipper a -> Zipper a
 down' z = (\f -> f $ fjDown z) $ case z of
@@ -126,11 +133,17 @@ down' z = (\f -> f $ fjDown z) $ case z of
     TermAst (Splice _) -> fjDown
     TermAst Hole -> fjUp
     TermAst (Let _ _) -> fjDown' . fjDown'
+  (getHole -> Just i :: Maybe ItemAst) -> case i of
+    ItemAst (TermDef _ _ _ _) -> fjRight . fjDown'
+    ItemAst (IndDef _ _ _ _) -> fjRight . fjDown'
+    ItemAst (ProdDef _ _ _ _ _) -> fjRight . fjDown'
 
 left :: Zipper a -> Maybe (Zipper a)
 left z = case Z.left z of
   Just z' | holeIsList z' -> Just $ moveListLast z'
-  Just z' -> Just z'
+  Just z' -> case z' of
+    (getHole -> Just i :: Maybe SItemInfo) -> Nothing
+    _ -> Just z'
   Nothing -> Z.up z >>= \z' ->
     if holeIsList z' then
       Z.left z'
@@ -222,7 +235,7 @@ render state ast = run . runState [] $ renderTerm ast where
     FocusedAst Right ast -> combine [yellowM "[", renderItem ast, yellowM "}"]
     ItemAst (TermDef _ name sig def) ->
       combine
-        [ pure "val "
+        [ greenM "val "
         , renderName name
         , pure " : "
         , renderTerm sig
