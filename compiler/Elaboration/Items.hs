@@ -3,7 +3,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, BangPatterns #-}
 
 module Elaboration.Items where
 
@@ -58,18 +58,19 @@ flatten items iid = case items of
   (unItem -> (IndDef (ds, ps) name sig constrs, rebuildItem)):is -> (FIndDef (ItemInfo iid shouldRecheck ds ps) name sig : flatConstrs ++ flatItems, rebuild) where
     shouldRecheck = not $ member Sig (keysSet ps) && member Def (keysSet ps)
     (flatItems, rebuildItems) = flatten is (iid + fromIntegral (length constrs) + 1)
-    (flatConstrs, rebuildConstrs) = flattenConstrs constrs (iid + 1)
+    (flatConstrs, rebuildConstrs) = flattenConstrs constrs (iid + 1) (fromIntegral $ length constrs)
     rebuild = pop >>= \case
       FIndDef (ItemInfo _ _ ds ps) name sig -> do
         constrs <- rebuildConstrs
         (rebuildItem (IndDef (ds, ps) name sig constrs) :) <$> rebuildItems
+      i -> error $ show i
 
-flattenConstrs :: [ConstructorAst] -> Natural -> ([FItem], SM.State [FItem] [ConstructorAst])
-flattenConstrs constrs iid = case constrs of
-  [] -> ([], pure [])
-  (unConstructor -> (Constructor (ds, ps) name sig, rebuildConstr)):cs -> (FConDef (ItemInfo iid shouldRecheck ds ps) name sig : flatConstrs, rebuild) where
+flattenConstrs :: [ConstructorAst] -> Natural -> Natural -> ([FItem], SM.State [FItem] [ConstructorAst])
+flattenConstrs constrs iid n = case (constrs, n) of
+  (_, 0) -> ([], pure [])
+  ((unConstructor -> (Constructor (ds, ps) name sig, rebuildConstr)):cs, _) -> (FConDef (ItemInfo iid shouldRecheck ds ps) name sig : flatConstrs, rebuild) where
     shouldRecheck = not $ member Sig (keysSet ps) && member Def (keysSet ps)
-    (flatConstrs, rebuildConstrs) = flattenConstrs cs (iid + 1)
+    (flatConstrs, rebuildConstrs) = flattenConstrs cs (iid + 1) (n - 1)
     rebuild = pop >>= \case
       FConDef (ItemInfo _ _ ds ps) name sig -> (rebuildConstr (Constructor (ds, ps) name sig) :) <$> rebuildConstrs
 
@@ -142,7 +143,7 @@ dependencies = fromList . map go where
   go :: FItem -> (Natural, Map Natural (Set ItemPart))
   go item = (unId item, unDependencies item)
 
-check :: Elab sig m => [ItemAst] -> m [(C.Item, ItemAst)]
+check :: Elab sig m => [ItemAst] -> m ([C.Item], [ItemAst])
 check items =
   let
     (flatItems, rebuildItems) = flatten items 0
@@ -150,9 +151,10 @@ check items =
     flatItems' = update flatItems
   in case ordering deps of
     Prelude.Right ord -> do
-      (cItems, flatItems'') <- unzip <$> loop flatItems' ord
+      -- let !() = traceShow flatItems' ()
+      (cItems, flatItems'') <- unzip . traceShowId <$> loop flatItems' ord
       let items' = SM.evalState rebuildItems flatItems''
-      pure $ zip cItems items'
+      pure (cItems, items')
     Prelude.Left _ -> error "TODO"
   where
     -- TODO: Use a `Map` instead of a `[]` and preserve item ordering on the AST some other way
@@ -160,11 +162,11 @@ check items =
     loop items = \case
       [] -> pure []
       iids:ord -> do
-        let availableItems = filter (flip member iids . unId) items
-        sigs <- mapM checkSig availableItems
+        let availableItems = {-traceShowId $ -}filter (flip member iids . unId) items
+        sigs <- {-traceShowId <$> -}mapM checkSig availableItems
         declare (map (bimap fst fst) sigs) $ define (fromList $ map (first snd) sigs) availableItems \items' -> do
           nextItems <- loop items ord
-          pure $ items' ++ nextItems
+          pure $ {-traceShowId -}items' ++ nextItems
     declare :: Elab sig m => [(Name, C.Term)] -> m [(C.Item, FItem)] -> m [(C.Item, FItem)]
     declare sigs act = case sigs of
       [] -> act
@@ -184,7 +186,7 @@ check items =
               pure (DIndDef, FIndDef info name sig)
             FConDef info name sig ->
               pure (DConDef, FConDef info name sig)
-          defineGlobal (unItemName item) itemDef \cItem -> go items ((cItem, item'):acc)
+          defineGlobal (unItemName item) itemDef \cItem -> go items (acc ++ [(cItem, item')])
     checkSig :: Elab sig m => FItem -> m ((Name, Natural), (C.Term, TermAst))
     checkSig item = do
       (name, cSig, sig) <- case item of
@@ -255,8 +257,10 @@ withOldParts ps = \case
   FTermDef (ItemInfo i b d _) n s e -> FTermDef (ItemInfo i b d ps) n s e
   FIndDef (ItemInfo i b d _) n s -> FIndDef (ItemInfo i b d ps) n s
   FProdDef (ItemInfo i b d _) n s -> FProdDef (ItemInfo i b d ps) n s
+  FConDef (ItemInfo i b d _) n s -> FConDef (ItemInfo i b d ps) n s
 withShouldRecheck :: Bool -> FItem -> FItem
 withShouldRecheck b = \case
   FTermDef (ItemInfo i _ d ps) n s e -> FTermDef (ItemInfo i b d ps) n s e
   FIndDef (ItemInfo i _ d ps) n s -> FIndDef (ItemInfo i b d ps) n s
   FProdDef (ItemInfo i _ d ps) n s -> FProdDef (ItemInfo i b d ps) n s
+  FConDef (ItemInfo i _ d ps) n s -> FConDef (ItemInfo i b d ps) n s

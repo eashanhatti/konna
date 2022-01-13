@@ -88,7 +88,7 @@ check term goal = do
       meta <- freshMeta goal >>= readback
       pure (meta, term)
     (TermAst (Let bindings body), _) -> do
-      (cBindings, bindings') <- unzip <$> EI.check bindings
+      (cBindings, bindings') <- EI.check bindings
       (cBody, body') <- go (zip cBindings (map unItemName bindings'))
       pure (C.gen $ C.Letrec cBindings cBody, TermAst $ Let bindings' body')
       where
