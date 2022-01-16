@@ -1,9 +1,8 @@
 let {
-  datatype Bool : U1 {
-    true : Bool;
-    false : Bool;
+  datatype Unit : U1 {
+    unit : Unit;
   };
-  val x : U0 = _;
+  val x : Unit ~> Unit = \x. x;
 } in {
-  x
+  _
 }

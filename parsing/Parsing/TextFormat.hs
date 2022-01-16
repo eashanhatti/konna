@@ -23,6 +23,10 @@ import Debug.Trace
 import Data.Text(stripPrefix)
 import qualified Data.Text as Text
 import Prelude hiding(lex)
+import Data.List(uncons)
+import Data.Maybe(fromJust)
+import Data.Set as Set hiding(fromList)
+import Data.Map(fromList, unionWith)
 
 data Token = TLet | TId { unId :: String } | TArrow1 | TArrow0 | TLam
            | TOParen | TCParen | TVal | TDatatype | TIn | THash
@@ -36,16 +40,36 @@ instance VisualStream [Token] where
 instance TraversableStream [Token] where
   reachOffset _ s = (Nothing, s)
 
-type Parser = Parsec Void [Token]
+type Parser = ParsecT Void [Token] (SM.State ([Set Name]))
 
 name :: Parser NameAst
 name = do
   n <- satisfy isId
   pure $ NameAst $ UserName $ unId n
 
+getS = fromJust . uncons <$> lift get
+putS = lift . put
+push = do
+  nns <- lift get
+  putS $ mempty:nns
+clear = do
+  (_, nns) <- getS
+  putS $ mempty:nns
+pop = do
+  (ns, nns) <- getS
+  putS nns
+  pure ns
+merge = do
+  (ns, nns) <- getS
+  let Just (ns', nns') = uncons nns
+  putS $ (ns `union` ns'):nns'
+  pure ns
+
 var :: Parser TermAst
 var = do
   n <- satisfy isId
+  (ns, nns) <- getS
+  putS $ (insert (UserName (unId n)) ns):nns
   pure $ TermAst $ Var $ UserName $ unId n
 
 isId = \case
@@ -89,28 +113,40 @@ val = do
   single TVal
   n <- name
   single TColon
+  push
   ty <- prec0
+  tyNs <- pop
   single TEq
+  push
   e <- prec0
-  pure . ItemAst $ TermDef (mempty, mempty) n ty e
+  eNs <- merge
+  let deps = unionWith union (fromList $ zip (toList tyNs) (repeat (singleton Sig))) (fromList $ zip (toList eNs) (repeat (singleton Def)))
+  pure . ItemAst $ TermDef (deps, mempty) n ty e
 
 datatype :: Parser ItemAst
 datatype = do
   single TDatatype
   n <- name
   single TColon
+  push
   ty <- prec0
+  tyNs <- merge
   single TOCurly
-  cs <- some $ con >>= \c -> single TSemi >> pure c
+  cs <- some do
+    c <- con
+    single TSemi
+    pure c
   single TCCurly
-  pure . ItemAst $ IndDef (mempty, mempty) n ty cs
+  pure . ItemAst $ IndDef (fromList $ zip (toList tyNs) (repeat (singleton Sig)), mempty) n ty cs
 
 con :: Parser ConstructorAst
 con = do
   n <- name
   single TColon
+  push
   ty <- prec0
-  pure . ConstructorAst $ Constructor (mempty, mempty) n ty
+  tyNs <- merge
+  pure . ConstructorAst $ Constructor (fromList $ zip (toList tyNs) (repeat (singleton Sig)), mempty) n ty
 
 item = try val <|> datatype
 
@@ -160,7 +196,7 @@ parens t = do
 prec0 = try arrType <|> try app <|> prec1
 prec1 = try (parens prec0) <|> try piType <|> try letB <|> try u0 <|> try u1 <|> try hole <|> try lam <|> try codeType <|> try splice <|> try quote <|> try hole <|> var
 
-parse ts = snd $ runParser' (prec0 >>= \e -> eof >> pure e) (State ts 0 (PosState ts 0 (SourcePos "<filename>" pos1 pos1) pos1 "") [])
+parse ts = snd $ flip SM.evalState [mempty] $ runParserT' (prec0 >>= \e -> eof >> pure e) (State ts 0 (PosState ts 0 (SourcePos "<filename>" pos1 pos1) pos1 "") [])
 
 lex :: Text -> SM.State String [Token]
 lex s = case s of

@@ -86,7 +86,7 @@ data Term
 data ItemPart = Sig | Def
   deriving (Show, Eq, Ord, Data)
 
-type SItemInfo = (Map Natural (Set ItemPart), Map ItemPart (C.Term, TermAst))
+type SItemInfo = (Map Name (Set ItemPart), Map ItemPart (C.Term, TermAst))
 
 type ItemAst = Ast Item
 data Item
