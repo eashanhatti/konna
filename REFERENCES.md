@@ -13,6 +13,14 @@ This is a list of prior art that have influenced Konna's design and implementati
 [MetaML: Multi-Stage Programming with Explicit Annotations](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.53.422&rep=rep1&type=pdf)
 > We introduce MetaML, a practically-motivated, statically typed multi-stage programming language. MetaML allows the programmer to construct, combine, and execute code fragments in a type-safe manner.
 
+### Contextual Type Theory
+
+[Moebius: Metaprogramming using Contextual Types](https://arxiv.org/abs/2111.08099)
+> We describe the foundation of the metaprogramming language, Moebius, which supports the generation of polymorphic code and, more importantly the analysis of polymorphic code via pattern matching.
+
+[Contextual Modal Type Theory](https://www.cs.cmu.edu/~fp/papers/tocl07.pdf)
+> Contextual modal type theory provides an elegant, uniform foundation for understanding meta-variables and explicit substitutions. We sketch some applications in functional programming and logical frameworks
+
 ### Elaboration
 
 [Elaborating dependent (co)pattern matching](https://dl.acm.org/doi/pdf/10.1145/3236770)
