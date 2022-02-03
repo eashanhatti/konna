@@ -63,6 +63,21 @@ check term goal = do
       vTy <- eval cTy
       unify goal vTy >>= mapM (putError . UnifyError)
       check term vTy
+    (TermAst (Pi (NameAst name) inTy outTy), N.TypeType1) -> do
+      (cInTy, inTy') <- check inTy (N.gen N.TypeType1)
+      vInTy <- eval cInTy
+      (cOutTy, outTy') <- bind name vInTy $ check outTy (N.gen N.TypeType1)
+      pure (C.gen $ C.FunType cInTy cOutTy, TermAst $ Pi (NameAst name) inTy' outTy')
+    (TermAst (Arrow inTy outTy), N.TypeType0) -> do
+      (cInTy, inTy') <- check inTy (N.gen N.TypeType0)
+      vInTy <- eval cInTy
+      (cOutTy, outTy') <- bindUnnamed vInTy $ check outTy (N.gen N.TypeType0)
+      pure (C.gen $ C.FunType cInTy cOutTy, TermAst $ Arrow inTy' outTy')
+    (TermAst U0, N.TypeType1) -> pure (C.gen C.TypeType0, term)
+    (TermAst U1, N.TypeType1) -> pure (C.gen C.TypeType1, term)
+    (TermAst (Code ty), N.TypeType1) -> do
+      (cTy, ty') <- check ty (N.gen N.TypeType1)
+      pure (C.gen $ C.QuoteType cTy, TermAst $ Code ty')
     (TermAst (Quote term), N.QuoteType vTy) -> do
       (cTerm, term') <- check term vTy
       pure (C.gen $ C.QuoteIntro cTerm cGoal, TermAst $ Quote term')
@@ -120,21 +135,6 @@ infer term = do
         pure (cApp, outTy, TermAst $ App lam' (map snd cArgs))
       else
         elabErrorTy term (ArgNum (length inTys) (length args))
-    TermAst (Pi (NameAst name) inTy outTy) -> do
-      (cInTy, inTy') <- check inTy (N.gen N.TypeType1)
-      vInTy <- eval cInTy
-      (cOutTy, outTy') <- bind name vInTy $ check outTy (N.gen N.TypeType1)
-      pure (C.gen $ C.FunType cInTy cOutTy, N.gen N.TypeType1, TermAst $ Pi (NameAst name) inTy' outTy')
-    TermAst (Arrow inTy outTy) -> do
-      (cInTy, inTy') <- check inTy (N.gen N.TypeType0)
-      vInTy <- eval cInTy
-      (cOutTy, outTy') <- bindUnnamed vInTy $ check outTy (N.gen N.TypeType0)
-      pure (C.gen $ C.FunType cInTy cOutTy, N.gen N.TypeType0, TermAst $ Arrow inTy' outTy')
-    TermAst U0 -> pure (C.gen C.TypeType0, N.gen N.TypeType1, term)
-    TermAst U1 -> pure (C.gen C.TypeType1, N.gen N.TypeType1, term)
-    TermAst (Code ty) -> do
-      (cTy, ty') <- check ty (N.gen N.TypeType0)
-      pure (C.gen $ C.QuoteType cTy, N.gen N.TypeType1, TermAst $ Code ty')
     _ -> elabErrorTy term Todo
   errors <- getErrors
   if null errors then

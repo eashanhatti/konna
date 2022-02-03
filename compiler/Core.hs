@@ -37,7 +37,7 @@ data Item
 
 instance Show Item where
   show item = case item of
-    TermDef nid ty body -> "def " ++ show nid ++ " : " ++ show ty ++ " = " ++ show body
+    TermDef nid body ty -> "def " ++ show nid ++ " : " ++ show ty ++ " = " ++ show body
     IndDef nid ty -> "ind " ++ show nid ++ " : " ++ show ty
     ProdDef nid ty -> "prod " ++ show nid ++ " : " ++ show ty
     ConDef nid ty -> "con " ++ show nid ++ " : " ++ show ty
