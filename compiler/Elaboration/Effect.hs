@@ -49,7 +49,7 @@ runElab :: ErrorC () (ReaderC Context (StateC State Identity)) a -> (State, Eith
 runElab act =
   run .
   runState (State mempty mempty 0 0) .
-  runReader (Context mempty mempty mempty (Level 0) [] mempty) .
+  runReader (Context mempty mempty mempty (Level 0) mempty mempty) .
   (runError{- :: ErrorC () _ _ -> _ (Either () a)-}) $
   act
 
