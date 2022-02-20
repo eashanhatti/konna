@@ -1,3 +1,5 @@
+**Note**: This is an old version of Konna. The current version can be found [here](https://github.com/eashanhatti/konna/commits/master).
+
 # Konna
 
 An experimental language for exploring the practical applications of two level type theory.
