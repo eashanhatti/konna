@@ -1,12 +1,6 @@
-**Note**: This is an old version of Konna. The current version can be found [here](https://github.com/eashanhatti/konna/commits/master).
-
 # Konna
 
 An experimental language for exploring the practical applications of two level type theory.
-
-Discussion takes place on the [r/ProgrammingLanguages Discord server](https://discord.gg/4Kjt3ZE) - Projects A-M 🠒 #konna.
-
-**Note**: Development is currently all happening on the `elab_rewrite` branch.
 
 ### Introduction
 
